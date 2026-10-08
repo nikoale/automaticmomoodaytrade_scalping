@@ -33,5 +33,11 @@ fi
 
 echo "GUI を起動します。ブラウザが開かない場合は表示された URL を開いてください。"
 echo "このウィンドウを閉じると bot も停止します。"
-.venv/bin/python -m scalper gui
+if command -v caffeinate >/dev/null 2>&1; then
+  # bot の動作中は Mac が自動スリープしないようにする (画面は消えても OK。ふたを閉じるとスリープします)
+  echo "(動作中は Mac の自動スリープを止めています)"
+  caffeinate -i .venv/bin/python -m scalper gui
+else
+  .venv/bin/python -m scalper gui
+fi
 read -r -p "終了しました。Enter キーで閉じます"
