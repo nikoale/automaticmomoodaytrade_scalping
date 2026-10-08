@@ -7,6 +7,7 @@ python -m swing gui → http://127.0.0.1:8765 が開く。
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import secrets
@@ -81,7 +82,7 @@ class App:
 
     # ---------------------------------------------------------------- 自動実行 (フェーズ 4)
     def _auto_path(self) -> Path:
-        return config_mod.load(self.config_path).path("gui_auto.json")
+        return self._base_path("gui_auto.json")
 
     def auto_on(self) -> bool:
         try:
@@ -138,8 +139,14 @@ class App:
             pass
 
     # ---------------------------------------------------------------- 設定
+    def _base_path(self, name: str) -> Path:
+        """データ置き場のファイル (data.dir は画面では変えないので、最初に 1 回だけ読む)。"""
+        if getattr(self, "_data_dir", None) is None:
+            self._data_dir = config_mod.load(self.config_path).path()
+        return self._data_dir / name
+
     def settings_path(self) -> Path:
-        return config_mod.load(self.config_path).path("gui_settings.json")
+        return self._base_path("gui_settings.json")
 
     def load_settings(self) -> dict:
         try:
@@ -165,9 +172,20 @@ class App:
         p = self.settings_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._cfg_cache = None
         return clean
 
     def cfg(self):
+        """設定 (2 秒だけ使い回す。画面の更新のたびに YAML を何度も読まないように)。"""
+        now = time.monotonic()
+        c = getattr(self, "_cfg_cache", None)
+        if c and now - c[0] < 2.0:
+            return copy.deepcopy(c[1])          # 呼び出し側が書き換えても使い回しの方は変わらない
+        cfg = self._load_cfg()
+        self._cfg_cache = (now, copy.deepcopy(cfg))
+        return cfg
+
+    def _load_cfg(self):
         over: dict = {}
         for k, v in self.load_settings().items():
             if k in SETTINGS_KEYS and SETTINGS_KEYS[k][0]:

@@ -56,7 +56,7 @@ def new_state(env: str) -> dict:
     return {"version": STATE_VERSION, "env": env, "acc_id": None, "created": None, "capital_usd": None,
             "cash_settled": None, "pending_sales": [], "positions": {}, "orders": [], "cooldown": {},
             "week": {}, "last_equity": None, "halt": {"on": False, "reason": "", "time": None},
-            "trades": [], "last_close": None, "last_open": None, "last_summary": None}
+            "trades": [], "last_close": None, "last_open": None, "last_summary": None, "equity_history": []}
 
 
 def load_state(cfg, env: str) -> dict:
@@ -512,6 +512,8 @@ class Executor:
                 log.warning("今週の損失が資金の %s%% に達しました → 今週は新規エントリーを止めます", cfg.risk["weekly_loss_limit_pct"])
             w["tripped"] = True
         self.st["last_equity"] = equity
+        hist = [x for x in self.st.setdefault("equity_history", []) if x[0] != d.isoformat()]
+        self.st["equity_history"] = (hist + [[d.isoformat(), round(equity, 2)]])[-400:]    # 画面の資金の推移用
         log.info("[%s] ボットの資金 %.2f ドル (現金 %.2f・株 %.2f)・建玉 %d", d, equity, led.total, mv, len(self.st["positions"]))
 
         b, bs = ind["bench_close"].iloc[i], ind["bench_sma"].iloc[i]
@@ -892,4 +894,5 @@ def read_summary(cfg, env: str = "SIMULATE") -> dict:
             "pending_sales": st["pending_sales"], "equity_usd": st["last_equity"], "week": st["week"],
             "positions": st["positions"], "orders": st["orders"], "trades": st["trades"][-30:],
             "last_close": st["last_close"], "last_open": st["last_open"], "created": st["created"],
+            "equity_history": st.get("equity_history", []),
             "capability": json.loads(cap.read_text(encoding="utf-8")) if cap.exists() else None}

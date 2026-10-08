@@ -90,7 +90,9 @@ def upcoming(cfg, now: datetime) -> list[dict]:
                 "time": calendar_us.session_times_jst(d)[0] + timedelta(minutes=sc["open_run_delay_min"])})
     res.append({"name": "screen", "label": LABELS["screen"], "time": weekly_time(cfg, now) + timedelta(days=7)})
     res.sort(key=lambda x: x["time"])
-    return [{**x, "time": x["time"].strftime("%m/%d(%a) %H:%M")} for x in res]
+    wd = "月火水木金土日"
+    return [{**x, "iso": x["time"].isoformat(), "time": x["time"].strftime("%m/%d") + f"({wd[x['time'].weekday()]}) "
+             + x["time"].strftime("%H:%M")} for x in res]
 
 
 def notify(cfg, title: str, msg: str) -> None:
