@@ -207,6 +207,11 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
           <button id="btnTradeOpen" class="primary">寄り付き後の処理</button>
         </div>
         <div class="hint">毎日の自動実行（フェーズ 4）はまだないので、今はボタンを押したときだけ動きます。押し忘れても、証券会社側の逆指値は残っています。</div>
+        <details style="margin-top:8px"><summary class="hint">やり直したいとき</summary>
+          <button id="btnTradeReset" class="wide">模擬口座の記録をリセット（ボットの注文を取り消して最初から）</button>
+          <div class="hint">ボットが出した有効な注文（買い・売り・逆指値）を取り消し、ボットの資金・建玉の記録を最初からにします。
+            すでに買えてしまった株は自動では売りません（moomoo アプリの模擬口座で売ってください）。</div>
+        </details>
       </div>
       <div class="card"><h2>ボットの建玉</h2><div class="tablewrap"><table id="tradePos"></table></div></div>
       <div class="card"><h2>予定・発注中の注文</h2><div class="tablewrap"><table id="tradeOrders"></table></div></div>
@@ -276,6 +281,7 @@ $("btnCheck").onclick = () => job("check");
 $("btnTradeCheck").onclick = () => job("trade_check");
 $("btnTradeClose").onclick = () => job("trade_close");
 $("btnTradeOpen").onclick = () => job("trade_open");
+$("btnTradeReset").onclick = () => { if (confirm("模擬口座のボットの注文を取り消して、記録を最初からにします。よろしいですか？")) job("trade_reset"); };
 async function tradeResume() {
   if (!confirm("停止の原因を確かめましたか？（moomoo アプリで注文と保有株を見て、ボットの記録と合っているか）\n解除すると、次の処理から注文を出します。")) return;
   const r = await api("/api/trade_resume", {});
@@ -318,7 +324,7 @@ $("btnSave").onclick = saveSettings;
 
 function renderJob(j) {
   const busy = j && j.state === "running";
-  for (const id of ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn", "btnAccount", "btnPwVerify", "btnTradeCheck", "btnTradeClose", "btnTradeOpen"]) $(id).disabled = busy;
+  for (const id of ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn", "btnAccount", "btnPwVerify", "btnTradeCheck", "btnTradeClose", "btnTradeOpen", "btnTradeReset"]) $(id).disabled = busy;
   const pill = $("jobPill");
   if (!j) { pill.className = "pill"; pill.textContent = "待機中"; return; }
   const m = Math.floor(j.elapsed / 60), s = j.elapsed % 60, t = m ? `${m}分${s}秒` : `${s}秒`;
@@ -334,6 +340,10 @@ function renderJob(j) {
     if (j.state === "done" && j.name === "screen") document.querySelector('[data-tab=watch]').click();
     if (j.state === "done" && j.name === "account") document.querySelector('[data-tab=acct]').click();
     if (j.name.startsWith("trade_") && j.state !== "running") document.querySelector('[data-tab=trade]').click();
+    if (j.name === "trade_reset" && j.state === "done") {
+      const r = j.result || {}, left = (r.left_shares || []).map((x) => `${x.symbol} ${x.shares}株`).join("、");
+      banner(`リセットしました。取り消した注文: ${(r.cancelled || []).join("、") || "なし"}` + (left ? `／ 買えてしまった株: ${left}（moomoo アプリの模擬口座で売ってください）` : ""), left ? "err" : "info");
+    }
     if (j.name === "verify_password") $("pwMsg").textContent = j.state === "done" ? "✅ " + j.result.message : (j.state === "error" ? "❌ " + j.error : "");
   }
 }

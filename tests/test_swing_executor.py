@@ -365,3 +365,40 @@ def test_capability_check_simulate_only(env):
 def test_config_rejects_bad_executor_values():
     with pytest.raises(ValueError, match="order_timing"):
         make_cfg(executor={"order_timing": "whenever"})
+
+
+def test_simulate_fx_of_one_does_not_turn_yen_into_dollars(env):
+    """模擬口座は円とドルで同じ総資産を返し、為替が 1 になる (2026-10-09 に実際に起きた: 20 万円 → 20 万ドル)。"""
+    br = FakeBroker()
+    br.funds = lambda: {"total_assets": 1e6, "cash": 1e6, "power": 1e6, "market_val": 0, "fx": 1.0}
+    ex, _ = make(env, br)
+    ex.run_close()
+    assert ex.st["capital_usd"] == pytest.approx(200000 / 150.0)
+    assert br.active("MARKET")[0]["qty"] * 21.2 < 600
+    from swing.account import effective_capital
+    assert effective_capital(env, 1e6, 1.0)["usd"] == pytest.approx(200000 / 150.0)
+
+
+def test_inflated_capital_record_halts_and_reset_cancels(env):
+    br = FakeBroker()
+    ex, _ = make(env, br)
+    ex.run_close()
+    oid = br.active("MARKET")[0]["order_id"]
+    ex.st["capital_usd"] = 200000.0                    # 前の版で記録されてしまった値
+    ex.save()
+    s = ex.run_close(force=True)
+    assert s["halt"]["on"] and "リセット" in s["halt"]["reason"]
+    r = ex.reset()
+    assert br.book[oid]["status"] == "CANCELLED_ALL" and r["cancelled"] and not r["left_shares"]
+    assert ex.st["capital_usd"] is None and not ex.st["orders"]
+    assert list(env.path("trade").glob("state_SIMULATE.reset-*.json"))
+    ex2, _ = make(env, br)
+    assert ex2.st["capital_usd"] is None
+
+
+def test_reset_reports_filled_shares(env):
+    br = FakeBroker()
+    ex, clock = _hold(env, br)
+    r = ex.reset()
+    assert r["left_shares"] and r["left_shares"][0]["symbol"] == "AAA"
+    assert not br.active("STOP")

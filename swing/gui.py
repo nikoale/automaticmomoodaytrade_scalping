@@ -121,7 +121,7 @@ class App:
                 "account": self._job_account, "verify_password": self._job_verify_password,
                 "backtest": lambda: self._job_backtest(False), "backtest_synthetic": lambda: self._job_backtest(True),
                 "trade_close": lambda: self._job_trade("close"), "trade_open": lambda: self._job_trade("open"),
-                "trade_check": lambda: self._job_trade("check")}
+                "trade_check": lambda: self._job_trade("check"), "trade_reset": lambda: self._job_trade("reset")}
         if name not in jobs:
             return {"ok": False, "error": f"不明な処理: {name}"}
         with self.job_lock:
@@ -229,6 +229,8 @@ class App:
                 s = ex.run_close()
             elif what == "open":
                 s = ex.run_open()
+            elif what == "reset":
+                return ex.reset()
             else:
                 s = executor.capability_check(cfg, ex.broker)
         return {"halt": s.get("halt"), "ok": s.get("ok")}
@@ -323,7 +325,7 @@ class App:
 JOB_LABELS = {"check": "OpenD 接続チェック", "account": "口座の読み込み", "verify_password": "取引パスワードの確認", "screen": "今週の監視リスト作成", "fetch": "過去データの取得",
               "backtest": "バックテスト", "backtest_synthetic": "バックテスト (擬似データ)",
               "trade_close": "引け後の処理 (模擬口座)", "trade_open": "寄り付き後の処理 (模擬口座)",
-              "trade_check": "発注機能の確認 (模擬口座)"}
+              "trade_check": "発注機能の確認 (模擬口座)", "trade_reset": "模擬口座の記録をリセット"}
 
 
 def make_handler(app: App):

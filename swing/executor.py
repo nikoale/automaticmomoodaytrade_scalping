@@ -147,6 +147,34 @@ class Executor:
         self.st["halt"] = {"on": False, "reason": "", "time": None}
         self.save()
 
+    def reset(self) -> dict:
+        """模擬口座だけ: ボットの有効な注文 (買い・売り・逆指値) を取り消し、記録を最初からにする。
+
+        前の記録は state_SIMULATE.reset-<日時>.json に残す。約定済みの株は自動では売らないので、一覧を返す
+        (moomoo アプリの模擬口座で売ってください)。
+        """
+        if self.env != "SIMULATE":
+            raise RuntimeError("記録のリセットは模擬口座 (SIMULATE) だけです")
+        ids = [(o["symbol"], o["order_id"]) for o in self.st["orders"] if o.get("order_id")]
+        ids += [(sym, p["stop_order_id"]) for sym, p in self.st["positions"].items() if p.get("stop_order_id")]
+        cancelled, filled = [], [{"symbol": s, "shares": p["shares"]} for s, p in self.st["positions"].items()]
+        for sym, oid in ids:
+            b = self.broker.order(oid)
+            if b and b["status"] in ACTIVE:
+                self.broker.cancel(oid)
+                cancelled.append(f"{sym} (注文 {oid})")
+            if b and b["dealt_qty"] > 0 and b["side"] == "BUY":
+                filled.append({"symbol": sym, "shares": b["dealt_qty"]})
+        p = state_path(self.cfg, self.env)
+        if p.exists():
+            os.replace(p, p.with_name(f"state_{self.env}.reset-{self.now():%Y%m%d-%H%M%S}.json"))
+        self.st = new_state(self.env)
+        log.warning("[リセット] 模擬口座の記録を最初からにしました。取り消した注文: %s", ", ".join(cancelled) or "なし")
+        if filled:
+            log.warning("[リセット] 約定済みの株が模擬口座に残っています (moomoo アプリで売ってください): %s",
+                        ", ".join(f"{x['symbol']} {x['shares']:g}株" for x in filled))
+        return {"cancelled": cancelled, "left_shares": filled}
+
     def _session_today(self) -> date:
         """今が取引時間中ならその日、それ以外は直近の引け済みの取引日。"""
         now = self.now()
@@ -166,12 +194,22 @@ class Executor:
         self.st["cash_settled"] = led.settled
         self.st["pending_sales"] = [[k.isoformat(), a] for k, a in led.pending]
 
+    def max_capital_usd(self) -> float:
+        """設定の運用資金をドルにした上限 (為替の範囲の下限で割った、いちばん大きく見積もった値)。"""
+        return float(self.cfg.account["capital_jpy"]) / float(self.cfg.account["fx_sane_range"][0])
+
     def _init_capital(self) -> None:
         if self.st["capital_usd"] is not None:
+            if self.st["capital_usd"] > self.max_capital_usd() * 1.001:
+                raise Halted(f"ボットの資金の記録 ({self.st['capital_usd']:,.2f} ドル) が設定の運用資金 "
+                             f"({self.cfg.account['capital_jpy']:,} 円) より大きすぎます。"
+                             "「模擬口座の記録をリセット」を押してやり直してください")
             return
         from .account import effective_capital
         f = self.broker.funds()
         cap = effective_capital(self.cfg, f.get("total_assets"), f.get("fx"))
+        if cap["usd"] > self.max_capital_usd() * 1.001:
+            raise Halted(f"ボットの資金の計算がおかしいので始めません ({cap['usd']:,.2f} ドル・為替 {cap['fx']})")
         self.st.update({"acc_id": self.broker.acc_id, "created": self.now().isoformat(timespec="seconds"),
                         "capital_usd": cap["usd"], "cash_settled": cap["usd"]})
         log.info("ボットの資金を %.2f ドル (約 %.0f 円) で始めます (%s)", cap["usd"], cap["jpy"], cap["reason"])

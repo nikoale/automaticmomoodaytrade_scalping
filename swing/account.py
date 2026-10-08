@@ -89,8 +89,11 @@ class AccountReader:
         jpy = self._accinfo(acc_id, mm.Currency.JPY)
         # 為替: 同じ口座の総資産を ドル建て / 円建て で取った比 (moomoo の換算レートに合わせる)
         tu, tj = _num(usd.get("total_assets")), _num(jpy.get("total_assets"))
-        if tu and tj and tu > 0:
+        if tu and tj and tu > 0 and sane_fx(cfg, tj / tu):
             fx, fx_src = tj / tu, "口座の総資産 (円 / ドル) から計算"
+        elif tu and tj and tu > 0:
+            fx, fx_src = float(cfg.account["fx_rate_jpy_per_usd"]), \
+                f"設定値 (口座の円 / ドルの比が {tj / tu:.2f} でおかしいため。模擬口座で起きます)"
         else:
             fx, fx_src = float(cfg.account["fx_rate_jpy_per_usd"]), "設定値 (口座から計算できなかったため)"
         summary = {k: {"label": lab, "usd": _num(usd.get(k)), "jpy": _num(jpy.get(k))} for k, lab in SUMMARY_FIELDS}
@@ -121,6 +124,16 @@ class AccountReader:
                 "time": datetime.now(calendar_us.TOKYO).strftime("%Y-%m-%d %H:%M:%S")}
 
 
+def sane_fx(cfg, fx: float | None) -> float | None:
+    """口座から計算した為替 (円/ドル) が config の範囲内ならその値、外なら None。"""
+    lo, hi = cfg.account["fx_sane_range"]
+    if fx is None or not (lo <= fx <= hi):
+        if fx is not None:
+            log.warning("口座から計算した為替 %.4f 円/ドル は範囲 (%s〜%s) の外なので使いません (設定値を使います)", fx, lo, hi)
+        return None
+    return fx
+
+
 def effective_capital(cfg, account_total_usd: float | None = None, fx: float | None = None) -> dict:
     """ボットが使う資金 (USD と円)。
 
@@ -129,7 +142,7 @@ def effective_capital(cfg, account_total_usd: float | None = None, fx: float | N
       account → 「設定の運用資金」と「口座の総資産」の小さい方 (口座に多くあっても設定額までしか使わない)
     fx: 円/ドル。口座を読み込んでいれば口座の換算レート、なければ設定値。
     """
-    fx = fx or float(cfg.account["fx_rate_jpy_per_usd"])
+    fx = sane_fx(cfg, fx) or float(cfg.account["fx_rate_jpy_per_usd"])
     conf_jpy = float(cfg.account["capital_jpy"])
     conf_usd = conf_jpy / fx
     src = cfg.account["capital_source"]

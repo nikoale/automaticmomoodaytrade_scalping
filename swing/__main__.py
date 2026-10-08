@@ -11,6 +11,7 @@
   trade open       寄り付き後の処理 (未発注の注文を出す → 約定を待つ → 逆指値)
   trade status     保存されている建玉・注文・停止状態を表示 (接続しない)
   trade resume     発注停止を解除する (原因を確かめてから)
+  trade reset      模擬口座の記録をリセット (ボットの有効な注文を取り消して最初から)
   trade check      発注機能の確認 (模擬口座だけ。指値・取消・成行の予約・逆指値・訂正)
 """
 from __future__ import annotations
@@ -132,6 +133,8 @@ def cmd_trade(cfg, what: str, yes: bool = False) -> None:
             s = ex.run_close()
         elif what == "open":
             s = ex.run_open()
+        elif what == "reset":
+            s = ex.reset()
         else:
             s = executor.capability_check(cfg, ex.broker)
     print(_json.dumps(s, ensure_ascii=False, indent=1, default=str))
@@ -155,7 +158,7 @@ def main(argv=None) -> None:
     b = sub.add_parser("backtest")
     b.add_argument("--synthetic", action="store_true")
     t = sub.add_parser("trade", help="フェーズ 3: 発注 (既定は模擬口座)")
-    t.add_argument("what", choices=["close", "open", "status", "resume", "check"])
+    t.add_argument("what", choices=["close", "open", "status", "resume", "check", "reset"])
     t.add_argument("--yes", action="store_true", help="resume の確認を省略")
     a = p.parse_args(argv)
     cfg = config_mod.load(a.config)

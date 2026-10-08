@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PATH = ROOT / "config.yaml"
 
 REQUIRED = {
-    "account": ["capital_jpy", "fx_rate_jpy_per_usd", "fx_cost_pct", "settlement_days", "capital_source"],
+    "account": ["capital_jpy", "fx_rate_jpy_per_usd", "fx_sane_range", "fx_cost_pct", "settlement_days", "capital_source"],
     "fees": ["commission_pct", "commission_max_usd", "slippage_pct"],
     "data": ["dir", "price_source", "history_start", "benchmark", "earnings_source", "screener_source"],
     "moomoo_data": ["page_size", "filter_interval_sec", "candidates", "bars_calendar_days", "earnings_lookahead_days"],
