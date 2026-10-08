@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moomoo-scalper"
+version = "0.1.0"
+description = "moomoo証券 OpenAPI を使ったスキャルピング / デイトレード自動売買ボット"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+moomoo = ["moomoo-api>=9.0"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+scalper = "scalper.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["scalper*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

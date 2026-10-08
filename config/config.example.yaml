@@ -1,0 +1,82 @@
+# ===== moomoo証券 スキャルピング bot 設定 (日本株) =====
+# cp config/config.example.yaml config/config.yaml してから編集してください。
+#
+# mode:
+#   backtest : CSV で検証 (scalper backtest)
+#   paper    : moomoo のリアルタイム相場 + ローカル模擬約定。お金は動かない ★まずはここから
+#   simulate : moomoo の模擬口座に発注 (※ moomoo OpenAPI では米国株のみ対応)
+#   live     : 実口座に発注 (--confirm-live が必要)
+mode: paper
+
+symbols:
+  - JP.7203        # トヨタ自動車
+  # - JP.9984      # ソフトバンクグループ
+bar_minutes: 1      # 1 / 3 / 5 / 15
+warmup_bars: 100
+log_dir: logs
+
+moomoo:
+  host: 127.0.0.1   # OpenD のアドレス
+  port: 11111
+  security_firm: FUTUJP     # moomoo証券(日本)
+  trd_market: JP            # JP=日本株 / US=米国株
+  jp_acc_type: JP_TOKUTEI   # JP_TOKUTEI(特定) / JP_GENERAL(一般)
+  trade_password_env: MOOMOO_TRADE_PASSWORD   # live 時、取引パスワードはこの環境変数から読む
+  acc_id: 0                 # 0 = 先頭の口座
+
+session:
+  timezone: Asia/Tokyo
+  sessions:
+    - ["09:00", "11:30"]    # 前場
+    - ["12:30", "15:30"]    # 後場 (2024/11/5 以降 大引け 15:30)
+  no_entry_first_minutes: 5       # 寄り直後は値が飛ぶので見送る
+  no_entry_last_minutes: 15
+  flatten_before_close_minutes: 5 # 大引け 5 分前に全決済 (クロージング・オークション前)
+  flatten_at_lunch: true          # 前場引け前にも決済
+
+strategy:
+  name: ema_vwap            # ema_vwap / orb / vwap_reversion
+  params:
+    fast: 9
+    slow: 21
+    rsi_period: 14
+    rsi_long_max: 75
+    rsi_short_min: 25
+    volume_mult: 1.2
+    atr_period: 14
+  # --- orb の例 ---
+  # name: orb
+  # params: {range_minutes: 15, buffer_atr: 0.1, volume_mult: 1.5, max_range_atr: 6.0}
+  # --- vwap_reversion の例 ---
+  # name: vwap_reversion
+  # params: {deviation_atr: 2.0, rsi_period: 7, rsi_low: 20, rsi_high: 80}
+
+exits:
+  stop_atr: 1.0         # 損切り = ATR × 1.0
+  target_atr: 1.5       # 利確 = ATR × 1.5
+  trail_atr: 0.0        # トレーリング (0=無効)
+  breakeven_atr: 0.8    # 含み益が ATR × 0.8 で損切りを建値+1ティックへ
+  max_hold_bars: 20     # 20 本で時間切れ決済
+  min_stop_ticks: 2
+  min_atr_ticks: 3      # 値幅 (ATR) が 3 ティック未満なら見送り
+
+risk:
+  account_size: 1000000       # 運用資金 (円)
+  risk_per_trade: 0.003       # 1 回の損失上限 = 資金の 0.3%
+  max_position_value: 500000  # 1 ポジション最大 50 万円
+  max_open_positions: 1
+  lot_size: 100               # 日本株は 100 株単位 (live/paper では moomoo から自動取得)
+  max_daily_loss: 10000       # 1 日 1 万円負けたら当日停止
+  max_trades_per_day: 30
+  max_consecutive_losses: 4
+  cooldown_bars_after_loss: 3
+  allow_short: false          # 日本株の空売りは非対応
+
+execution:
+  tick_size: auto       # auto(東証標準) / topix500(TOPIX500構成銘柄=トヨタ等) / 数値
+  slippage_ticks: 1     # backtest / paper の想定スリッページ
+  commission_per_order: 0
+  commission_rate: 0.0
+  limit_offset_ticks: 1 # 実発注は 最良気配 ± 1 ティックの指値 (即時約定狙い)
+  order_timeout_sec: 5  # 5 秒で約定しなければ取消
+  use_market_orders: false

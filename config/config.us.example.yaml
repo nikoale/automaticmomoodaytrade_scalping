@@ -1,0 +1,33 @@
+# ===== 米国株版 (moomoo の模擬口座 simulate が使える) =====
+mode: simulate
+symbols: [US.AAPL, US.NVDA]
+bar_minutes: 1
+moomoo:
+  security_firm: FUTUJP     # moomoo証券(日本) の口座で米国株を取引
+  trd_market: US
+session:
+  timezone: America/New_York
+  sessions: [["09:30", "16:00"]]
+  no_entry_first_minutes: 5
+  no_entry_last_minutes: 15
+  flatten_before_close_minutes: 5
+strategy:
+  name: ema_vwap
+  params: {fast: 9, slow: 21, volume_mult: 1.2}
+exits:
+  stop_atr: 1.0
+  target_atr: 1.5
+  breakeven_atr: 0.8
+  max_hold_bars: 20
+  min_atr_ticks: 3
+risk:
+  account_size: 10000         # USD
+  risk_per_trade: 0.003
+  max_position_value: 5000
+  max_open_positions: 2
+  lot_size: 1
+  max_daily_loss: 100
+  allow_short: false
+execution:
+  tick_size: auto
+  slippage_ticks: 1
