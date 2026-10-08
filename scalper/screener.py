@@ -5,7 +5,8 @@
 
   点数 = 当日値幅% × log10(売買代金) × 出来高比率 (上限 3)
 
-起動時に 1 回選ぶ (毎日起動し直せば、その日の銘柄になる)。
+起動時に選び、稼働中も refresh_minutes ごと・時間帯の切り替わりごとに選び直す。
+ポジションを持っている銘柄は決済されるまで外さない。
 """
 from __future__ import annotations
 
@@ -98,14 +99,35 @@ def screen(cfg: Config, quote_ctx, mm) -> list[dict]:
     return rank(rows, cfg)
 
 
-def select(cfg: Config, quote_ctx, mm) -> list[str]:
-    """上位 count 銘柄を選んでログに理由を出す。"""
+def choose(ranked: list[dict], current: list[str], count: int, keep_factor: float = 2.0) -> list[str]:
+    """上位 count 銘柄を選ぶ。今の銘柄は上位 count × keep_factor 以内なら残す (入れ替えすぎ防止)。"""
+    ok = [r["code"] for r in ranked if r["excluded"] is None]
+    keep_zone = ok[: max(count, int(count * keep_factor))]
+    chosen = [c for c in current if c in keep_zone][:count]
+    for c in ok:
+        if len(chosen) >= count:
+            break
+        if c not in chosen:
+            chosen.append(c)
+    return chosen
+
+
+def log_choice(ranked: list[dict], chosen: list[str]) -> None:
+    by_code = {r["code"]: r for r in ranked}
+    for c in chosen:
+        r = by_code.get(c)
+        if r:
+            log.info("自動選定: %s 値幅=%.2f%% 売買代金=%.3g 出来高比=%s スプレッド=%s 点数=%.1f", c,
+                     r["amplitude"] or 0, r["turnover"], r["volume_ratio"],
+                     "—" if r["spread_pct"] is None else f"{r['spread_pct']:.3f}%", r["score"])
+
+
+def select(cfg: Config, quote_ctx, mm, current: list[str] | None = None) -> list[str]:
+    """候補を点数化して count 銘柄を選び、理由をログに出す。"""
+    a = cfg.auto_symbols
     ranked = screen(cfg, quote_ctx, mm)
-    chosen = [r for r in ranked if r["excluded"] is None][: cfg.auto_symbols.count]
+    chosen = choose(ranked, current or [], a.count, a.keep_rank_factor)
     if not chosen:
         raise RuntimeError("条件に合う銘柄がありません (auto_symbols の条件を緩めてください)")
-    for r in chosen:
-        log.info("自動選定: %s %s 値幅=%.2f%% 売買代金=%.3g 出来高比=%s スプレッド=%s 点数=%.1f", r["code"], r["name"],
-                 r["amplitude"], r["turnover"], r["volume_ratio"],
-                 "—" if r["spread_pct"] is None else f"{r['spread_pct']:.3f}%", r["score"])
-    return [r["code"] for r in chosen]
+    log_choice(ranked, chosen)
+    return chosen

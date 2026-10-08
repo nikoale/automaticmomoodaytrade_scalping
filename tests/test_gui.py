@@ -66,7 +66,7 @@ def test_check_symbols_backtest(gui):
 
 def test_start_state_flatten_stop(gui):
     app, call = gui
-    _, r = call("/api/start", {"settings": {"preset": "us", "symbols": "US.NVDA", "mode": "paper"}})
+    _, r = call("/api/start", {"settings": {"preset": "us", "symbols": "US.NVDA", "mode": "paper", "auto": False}})
     assert r["ok"]
     for _ in range(50):
         _, st = call("/api/state?since=0")

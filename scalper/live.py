@@ -80,6 +80,14 @@ class LiveRunner:
         self.phase = "idle"             # idle / connecting / screening / warming / running / stopped / error
         self.error: str | None = None
         self.started_at: datetime | None = None
+        self.paused = False
+        self._blocked: set[str] = set()      # 既存ポジションがあるので触らない銘柄
+        self._retiring: set[str] = set()     # 自動選定から外れた (決済待ち) 銘柄
+        self._next_refresh: float | None = None
+        self._last_session_idx: int | None = None
+        self.next_refresh_at: datetime | None = None
+        self.last_refresh_at: datetime | None = None
+        self.refresh_history: deque = deque(maxlen=20)
 
     # ------------------------------------------------------------------ util
     def now(self) -> datetime:
@@ -125,8 +133,8 @@ class LiveRunner:
         self.quote_ctx.set_handler(QHandler())
         self.quote_ctx.set_handler(BHandler())
 
-    def _lot_sizes(self) -> dict[str, float]:
-        ret, df = self.quote_ctx.get_market_snapshot(self.cfg.symbols)
+    def _lot_sizes(self, codes: list[str]) -> dict[str, float]:
+        ret, df = self.quote_ctx.get_market_snapshot(codes)
         if ret != self.mm.RET_OK:
             if self.cfg.mode != "paper":
                 raise SystemExit(f"get_market_snapshot 失敗 (相場権限・銘柄コードを確認): {df}")
@@ -144,24 +152,33 @@ class LiveRunner:
         cfg = self.cfg
         if cfg.mode == "paper":
             self.broker = PaperBroker(cfg, self.best_quote)
-            existing = {}
         else:
             from .moomoo_broker import MoomooBroker
             self.broker = MoomooBroker(cfg, self.best_quote)
-            existing = self.broker.positions()
             log.info("account: %s", self.broker.account_summary())
-        risk = RiskManager(cfg.risk)
-        sessions = TradingSessions.from_config(cfg.session)
-        lots = self._lot_sizes()
-        logger = TradeLogger(cfg.log_dir, cfg.mode)
-        for code in cfg.symbols:
-            eng = SymbolEngine(code, cfg, create_strategy(cfg.strategy.name, cfg.strategy.params), risk,
-                               self.broker, sessions, lot_size=lots.get(code), on_trade=logger)
+        self.risk = RiskManager(cfg.risk)
+        self.sessions = TradingSessions.from_config(cfg.session)
+        self.trade_logger = TradeLogger(cfg.log_dir, cfg.mode)
+        self._add_engines(list(cfg.symbols))
+
+    def _add_engines(self, codes: list[str]) -> None:
+        cfg = self.cfg
+        existing = self.broker.positions() if hasattr(self.broker, "positions") else {}
+        lots = self._lot_sizes(codes)
+        for code in codes:
+            eng = SymbolEngine(code, cfg, create_strategy(cfg.strategy.name, cfg.strategy.params), self.risk,
+                               self.broker, self.sessions, lot_size=lots.get(code), on_trade=self.trade_logger)
             if existing.get(code):
                 # ボットが建てていない既存ポジションには触らない (誤決済防止)
-                log.warning("%s: 既存ポジション %d 株があるため、この銘柄は売買しません", code, existing[code])
-                eng.enabled = False
+                log.warning("%s: 既存ポジション %s 株があるため、この銘柄は売買しません", code, existing[code])
+                self._blocked.add(code)
             self.engines[code] = eng
+        self._apply_enabled()
+
+    def _apply_enabled(self) -> None:
+        """新規エントリーの可否 = 一時停止中でない & 既存ポジション銘柄でない & 入れ替え待ちでない。"""
+        for code, eng in self.engines.items():
+            eng.enabled = not (self.paused or code in self._blocked or code in self._retiring)
 
     @property
     def _session(self):
@@ -212,20 +229,114 @@ class LiveRunner:
             if page is None:
                 return rows[-n:]
 
-    def _subscribe(self) -> None:
+    def _subtypes(self) -> list:
         mm = self.mm
-        subs = [getattr(mm.SubType, _KTYPE[self.cfg.bar_minutes]), mm.SubType.QUOTE]
+        return [getattr(mm.SubType, _KTYPE[self.cfg.bar_minutes]), mm.SubType.QUOTE, mm.SubType.ORDER_BOOK]
+
+    def _subscribe(self, codes: list[str] | None = None) -> None:
+        mm = self.mm
+        codes = list(codes if codes is not None else self.cfg.symbols)
+        subs = self._subtypes()[:2]
         kw = {} if self._session is None else {"session": self._session}
-        ret, err = self.quote_ctx.subscribe(self.cfg.symbols, subs, subscribe_push=True, **kw)
+        ret, err = self.quote_ctx.subscribe(codes, subs, subscribe_push=True, **kw)
         if ret != mm.RET_OK:
             raise SystemExit(f"subscribe 失敗 (相場権限・銘柄コードを確認): {err}")
-        # 板は権限レベル (LV1 など) によっては取れない。取れなければ現在値で代用する
-        ret, err = self.quote_ctx.subscribe(self.cfg.symbols, [mm.SubType.ORDER_BOOK], subscribe_push=True)
+        # 板が取れなければ現在値で代用する (paper のみ)
+        ret, err = self.quote_ctx.subscribe(codes, [mm.SubType.ORDER_BOOK], subscribe_push=True)
         if ret != mm.RET_OK:
             if self.cfg.mode != "paper":
                 raise SystemExit(f"板 (ORDER_BOOK) の購読に失敗: {err}")
             log.warning("板の購読に失敗 (%s)。paper の約定は現在値 + スリッページで計算します", err)
-        log.info("subscribed %s session=%s", self.cfg.symbols, self.cfg.session.us_session)
+        log.info("subscribed %s session=%s", codes, self.cfg.session.us_session)
+
+    def _unsubscribe(self, codes: list[str]) -> None:
+        if not codes:
+            return
+        ret, err = self.quote_ctx.unsubscribe(codes, self._subtypes())
+        if ret != self.mm.RET_OK:   # 購読から 1 分未満などで失敗しても売買には影響しない
+            log.info("unsubscribe %s failed (無視): %s", codes, err)
+
+    # ------------------------------------------------------------------ 銘柄の自動入れ替え
+    def _schedule_refresh(self, minutes: float) -> None:
+        self._next_refresh = _time.monotonic() + minutes * 60
+        self.next_refresh_at = self.now() + timedelta(minutes=minutes)
+
+    def _maybe_refresh(self, now: datetime) -> None:
+        a = self.cfg.auto_symbols
+        if not a.enabled:
+            return
+        idx = self.sessions.session_index(now)
+        if idx != self._last_session_idx:
+            self._last_session_idx = idx
+            if idx is not None:
+                # 新しい時間帯 (寄り付きなど) が始まった → 当日のデータが溜まるのを待ってから選び直す
+                wait = max(self.cfg.session.no_entry_first_minutes, 5)
+                log.info("時間帯が切り替わりました。%d 分後に銘柄を選び直します", wait)
+                self._schedule_refresh(wait)
+        self._retire_flat()
+        if self._next_refresh is None or _time.monotonic() < self._next_refresh:
+            return
+        if idx is None:   # 市場が閉まっている間は選び直さない
+            self._next_refresh = None
+            self.next_refresh_at = None
+            return
+        self.refresh_symbols()
+        if a.refresh_minutes:
+            self._schedule_refresh(a.refresh_minutes)
+        else:
+            self._next_refresh = None
+            self.next_refresh_at = None
+
+    def refresh_symbols(self) -> None:
+        """候補を選び直し、銘柄を入れ替える。ポジションのある銘柄は決済されるまで残す。"""
+        from .screener import select
+        current = [c for c in self.engines if c not in self._retiring]
+        try:
+            chosen = select(self.cfg, self.quote_ctx, self.mm, current)
+        except Exception as e:
+            log.warning("銘柄の選び直しに失敗 (今の銘柄を継続): %s", e)
+            return
+        self.last_refresh_at = self.now()
+        add = [c for c in chosen if c not in self.engines]
+        drop = [c for c in self.engines if c not in chosen]
+        for c in chosen:
+            self._retiring.discard(c)          # 入れ替え待ちだったが再び選ばれた
+        for c in drop:
+            self._retiring.add(c)
+        if add:
+            try:
+                self._subscribe(add)
+                self._add_engines(add)
+                for c in add:
+                    self._warmup(self.engines[c])
+            except (Exception, SystemExit) as e:   # 追加に失敗しても今の銘柄で売買を続ける
+                log.warning("銘柄の追加に失敗しました %s: %s", add, e)
+                for c in add:
+                    if c in self.engines and self.engines[c].position is None:
+                        del self.engines[c]
+                add = [c for c in add if c in self.engines]
+        self._apply_enabled()
+        self._retire_flat()
+        self.cfg.symbols = list(self.engines)
+        msg = f"銘柄を更新: {chosen}" + (f" 追加={add}" if add else "") + (f" 外す={drop}" if drop else "")
+        log.info(msg if (add or drop) else f"銘柄を確認: 変更なし {chosen}")
+        self.refresh_history.append({"time": str(self.last_refresh_at), "chosen": chosen, "add": add, "drop": drop})
+
+    def _retire_flat(self) -> None:
+        """入れ替え待ちの銘柄のうち、ポジションがなくなったものを外す。"""
+        done = [c for c in self._retiring if c in self.engines and self.engines[c].position is None]
+        for c in done:
+            del self.engines[c]
+            self._retiring.discard(c)
+            self._pending_bar.pop(c, None)
+            self._last_bar_time.pop(c, None)
+            self.bars.pop(c, None)
+            self.book.pop(c, None)
+            log.info("%s を監視対象から外しました", c)
+        if done:
+            self._unsubscribe(done)
+            self.cfg.symbols = list(self.engines)
+
 
     # ------------------------------------------------------------------ event handling
     def _on_kline(self, code: str, row: dict) -> None:
@@ -285,13 +396,16 @@ class LiveRunner:
             for eng in self.engines.values():
                 eng.force_flatten(now, "manual")
         elif cmd == "pause":
-            for eng in self.engines.values():
-                eng.enabled = False
+            self.paused = True
+            self._apply_enabled()
             log.warning("新規エントリーを停止しました (保有中のポジションは通常どおり決済されます)")
         elif cmd == "resume":
-            for eng in self.engines.values():
-                eng.enabled = True
+            self.paused = False
+            self._apply_enabled()
             log.info("新規エントリーを再開しました")
+        elif cmd == "refresh":
+            if self.cfg.auto_symbols.enabled:
+                self.refresh_symbols()
 
     def request(self, cmd: str) -> None:
         """別スレッド (GUI) からの操作。エンジンはランナーのスレッドでだけ動かす。"""
@@ -303,7 +417,7 @@ class LiveRunner:
 
     def snapshot(self) -> dict:
         """GUI 表示用の状態。別スレッドから読むので失敗しても落ちないようにする。"""
-        risk = next(iter(self.engines.values())).risk if self.engines else None
+        risk = getattr(self, "risk", None)
         symbols = []
         for code, eng in list(self.engines.items()):
             p = eng.position
@@ -312,6 +426,7 @@ class LiveRunner:
             bid, ask = self.best_quote(code)
             symbols.append({
                 "code": code, "last": last, "bid": bid, "ask": ask, "enabled": eng.enabled,
+                "retiring": code in self._retiring, "blocked": code in self._blocked,
                 "ready": eng.strategy.ready,
                 "position": None if p is None else {
                     "qty": p.qty, "entry": p.entry_price, "stop": p.stop, "target": p.target,
@@ -324,7 +439,11 @@ class LiveRunner:
         return {
             "phase": self.phase, "error": self.error, "mode": self.cfg.mode, "market": self.cfg.market,
             "strategy": self.cfg.strategy.name, "auto": self.cfg.auto_symbols.enabled,
-            "chosen": list(self.cfg.symbols) if self.engines else [], "started_at": str(self.started_at) if self.started_at else None,
+            "chosen": [c for c in self.engines if c not in self._retiring], "retiring": sorted(self._retiring),
+            "paused": self.paused,
+            "next_refresh": str(self.next_refresh_at)[:19] if self.next_refresh_at else None,
+            "last_refresh": str(self.last_refresh_at)[:19] if self.last_refresh_at else None,
+            "refresh_history": list(self.refresh_history)[-5:], "started_at": str(self.started_at) if self.started_at else None,
             "now": str(self.now()),
             "daily_pnl": risk.daily_pnl if risk else 0.0, "trades_today": risk.trades_today if risk else 0,
             "halted": risk.halted_reason if risk else None, "symbols": symbols,
@@ -344,6 +463,7 @@ class LiveRunner:
                 from .screener import select
                 self.phase = "screening"
                 cfg.symbols = select(cfg, self.quote_ctx, self.mm)
+                self.last_refresh_at = self.now()
                 log.info("自動選定した銘柄: %s", cfg.symbols)
             self._build_engines()
             self._subscribe()
@@ -354,12 +474,17 @@ class LiveRunner:
                 signal.signal(signal.SIGINT, self.stop)
                 signal.signal(signal.SIGTERM, self.stop)
             self.phase = "running"
+            if cfg.auto_symbols.enabled:
+                self._last_session_idx = self.sessions.session_index(self.now())
+                if cfg.auto_symbols.refresh_minutes:
+                    self._schedule_refresh(cfg.auto_symbols.refresh_minutes)
             last_status = 0.0
             while not self._stop:
                 self._drain(timeout=1.0)
                 now = self.now()
-                for eng in self.engines.values():
+                for eng in list(self.engines.values()):
                     eng.on_clock(now)
+                self._maybe_refresh(now)
                 if _time.monotonic() - last_status > 60:
                     last_status = _time.monotonic()
                     self._log_status()
@@ -373,7 +498,7 @@ class LiveRunner:
             self._shutdown()
 
     def _log_status(self) -> None:
-        r = next(iter(self.engines.values())).risk if self.engines else None
+        r = getattr(self, "risk", None)
         pos = {c: (e.position.qty, e.position.entry_price) for c, e in self.engines.items() if e.position}
         if r:
             log.info("status: pnl=%.0f trades=%d positions=%s halted=%s", r.daily_pnl, r.trades_today, pos,

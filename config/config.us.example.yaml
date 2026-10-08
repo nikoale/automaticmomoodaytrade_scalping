@@ -32,10 +32,11 @@ risk:
 execution:
   tick_size: auto
   slippage_ticks: 1
-# 銘柄の自動選定: enabled: true で、起動時に候補 (流動性の高い約 60 銘柄) から
+# 銘柄の自動選定: enabled: true で、起動時と稼働中に候補 (流動性の高い約 60 銘柄) から
 # 「当日値幅 × 売買代金 × 出来高比率」の点数が高い順に count 銘柄を選んで symbols を置き換える
 auto_symbols:
-  enabled: false
+  enabled: true
+  refresh_minutes: 30          # 稼働中も 30 分ごと＋寄り付きなど時間帯の切り替わりで選び直す (0 = 開始時のみ)
   count: 2
   min_price: 5
   max_price: 1000              # 1 ポジション上限 (5000 USD) で 5 株以上買える価格まで

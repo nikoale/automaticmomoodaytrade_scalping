@@ -85,6 +85,8 @@ def build_config(s: dict) -> Config:
         cfg.auto_symbols.enabled = bool(s["auto"])
     if s.get("auto_count") not in (None, ""):
         cfg.auto_symbols.count = int(s["auto_count"])
+    if s.get("auto_refresh") not in (None, ""):
+        cfg.auto_symbols.refresh_minutes = int(s["auto_refresh"])
     if s.get("host"):
         cfg.moomoo.host = str(s["host"])
     if s.get("port"):
@@ -109,6 +111,7 @@ def preset_defaults() -> dict:
             "account_size": cfg.risk.account_size, "risk_pct": round(cfg.risk.risk_per_trade * 100, 3),
             "max_daily_loss": cfg.risk.max_daily_loss, "max_position_value": cfg.risk.max_position_value,
             "currency": "USD", "auto_count": cfg.auto_symbols.count,
+            "auto_refresh": cfg.auto_symbols.refresh_minutes,
             # 時間外の注文は moomoo 模擬口座で未検証なので paper のみ
             "simulate_ok": cfg.session.us_session.upper() == "RTH",
         }
@@ -164,7 +167,7 @@ class App:
             return {"ok": not self.running()}
 
     def command(self, cmd: str) -> dict:
-        if not self.running() or cmd not in ("flatten", "pause", "resume"):
+        if not self.running() or cmd not in ("flatten", "pause", "resume", "refresh"):
             return {"ok": False, "error": "稼働中ではありません"}
         self.runner.request(cmd)
         return {"ok": True}

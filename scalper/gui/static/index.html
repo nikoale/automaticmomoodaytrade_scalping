@@ -117,6 +117,10 @@ th { color: var(--muted); font-weight: 600; }
         <input id="auto_count" type="number" min="1" max="20" style="flex:1" title="選ぶ銘柄数">
         <span class="hint" style="flex:0 0 auto">銘柄</span>
       </div>
+      <div class="row" style="align-items:center; margin-top:6px">
+        <span class="hint" style="flex:3; margin:0">選び直す間隔（分・0で開始時のみ）</span>
+        <input id="auto_refresh" type="number" min="0" step="5" style="flex:1">
+      </div>
       <button id="btnScreen" style="width:100%; margin-top:6px">候補ランキングを見る</button>
       <div id="autoHint" class="hint"></div>
 
@@ -175,6 +179,8 @@ th { color: var(--muted); font-weight: 600; }
         <button id="btnPause" disabled>⏸ 新規エントリー停止</button>
         <button id="btnResume" disabled>▶ 再開</button>
         <button id="btnFlatten" class="danger" disabled>✋ 全ポジション決済</button>
+        <button id="btnRefresh" disabled style="display:none">🔄 今すぐ銘柄を選び直す</button>
+        <span id="refreshInfo" class="hint" style="align-self:center"></span>
       </div>
       <div id="symCards"><div class="card empty">左の設定で「② 開始」を押すと、ここに価格・ポジション・チャートが表示されます。</div></div>
       <div class="card">
@@ -272,14 +278,14 @@ function settings() {
     account_size: $("account_size").value, risk_pct: $("risk_pct").value,
     max_daily_loss: $("max_daily_loss").value, max_position_value: $("max_position_value").value,
     host: $("host").value, port: $("port").value,
-    auto: $("auto").checked, auto_count: $("auto_count").value,
+    auto: $("auto").checked, auto_count: $("auto_count").value, auto_refresh: $("auto_refresh").value,
   };
 }
 function applyPreset(key, keepSymbols) {
   const p = META.presets[key];
   if (!keepSymbols) {
     $("symbols").value = p.symbols; $("strategy").value = p.strategy;
-    for (const k of ["account_size", "risk_pct", "max_daily_loss", "max_position_value", "auto_count"]) $(k).value = p[k];
+    for (const k of ["account_size", "risk_pct", "max_daily_loss", "max_position_value", "auto_count", "auto_refresh"]) $(k).value = p[k];
   }
   document.querySelectorAll(".cur").forEach((e) => e.textContent = "(" + p.currency + ")");
   const sim = document.querySelector("input[name=mode][value=simulate]");
@@ -291,7 +297,11 @@ function updateAuto() {
   const on = $("auto").checked;
   $("symbols").disabled = on || (lastState && lastState.running);
   $("btnSearch").disabled = on;
-  $("autoHint").textContent = on ? `開始時に、よく動いて売買の多い銘柄を ${$("auto_count").value || "?"} 個選びます（上の銘柄欄は使いません）` : "";
+  $("auto_refresh").disabled = !on || (lastState && lastState.running);
+  const every = Number($("auto_refresh").value);
+  $("autoHint").textContent = on ? `よく動いて売買の多い銘柄を ${$("auto_count").value || "?"} 個選びます` +
+    (every ? `。稼働中も ${every} 分ごと＋寄り付きなど時間帯の切り替わりで自動で選び直します（ポジション中の銘柄は決済後に入れ替え）` : "（開始時のみ）") +
+    "。上の銘柄欄は使いません" : "";
 }
 function updateHints() {
   $("strategyInfo").textContent = META.strategies[$("strategy").value] || "";
@@ -314,7 +324,7 @@ async function init() {
   $("preset").value = s.preset || "us";
   applyPreset($("preset").value, false);
   if (s.preset) {
-    for (const k of ["symbols", "strategy", "account_size", "risk_pct", "max_daily_loss", "max_position_value", "host", "port", "auto_count"])
+    for (const k of ["symbols", "strategy", "account_size", "risk_pct", "max_daily_loss", "max_position_value", "host", "port", "auto_count", "auto_refresh"])
       if (s[k] !== undefined && s[k] !== "") $(k).value = s[k];
     $("auto").checked = !!s.auto;
     const m = document.querySelector(`input[name=mode][value=${s.mode}]`);
@@ -338,7 +348,8 @@ $("btnCheck").onclick = async () => {
   const r = await api("/api/check", { settings: settings() });
   $("checkOut").textContent = (r.lines || [r.error]).join("\n");
 };
-$("auto").onchange = updateAuto; $("auto_count").oninput = updateAuto;
+$("auto").onchange = updateAuto; $("auto_count").oninput = updateAuto; $("auto_refresh").oninput = updateAuto;
+$("btnRefresh").onclick = () => api("/api/command", { cmd: "refresh" });
 $("btnScreen").onclick = async () => {
   const tb = $("screenTable").querySelector("tbody");
   tb.innerHTML = `<tr><td colspan="9" class="empty">取得中...（OpenD が必要）</td></tr>`; openModal("screenModal");
@@ -490,12 +501,16 @@ async function poll() {
   $("modeBadge").style.display = st.running ? "" : "none";
   $("modeBadge").textContent = (st.mode === "paper" ? "paper" : "moomoo模擬口座") + " / " + (st.strategy || "");
   $("btnStart").style.display = st.running ? "none" : ""; $("btnStop").style.display = st.running ? "" : "none";
-  for (const id of ["btnPause", "btnResume", "btnFlatten"]) $(id).disabled = !(st.running && st.phase === "running");
+  for (const id of ["btnPause", "btnResume", "btnFlatten", "btnRefresh"]) $(id).disabled = !(st.running && st.phase === "running");
+  $("btnRefresh").style.display = st.running && st.auto ? "" : "none";
+  $("refreshInfo").textContent = st.running && st.auto ?
+    `前回の選定 ${st.last_refresh ? st.last_refresh.slice(11, 16) : "—"} ／ 次回 ${st.next_refresh ? st.next_refresh.slice(11, 16) : "市場が開いてから"}（市場時刻）` : "";
   document.querySelectorAll("#preset, #symbols, #strategy, input[name=mode], #account_size, #risk_pct, #max_daily_loss, #max_position_value, #host, #port")
     .forEach((e) => { if (e.name !== "mode" || !st.running) e.disabled = st.running; });
   if (!st.running) applyPresetModeLock();
   if (st.phase === "error" && st.error) banner("停止しました: " + st.error);
-  else if (st.running && st.auto && st.chosen && st.chosen.length) banner("自動選定した銘柄: " + st.chosen.join(", "), "info");
+  else if (st.running && st.auto && st.chosen && st.chosen.length) banner("自動選定した銘柄: " + st.chosen.join(", ") +
+    (st.retiring && st.retiring.length ? "（決済後に外す: " + st.retiring.join(", ") + "）" : ""), "info");
   else if (!st.running && $("banner").classList.contains("info")) banner("");
   updateAuto();
 
@@ -510,6 +525,8 @@ async function poll() {
   let unreal = 0, trades = [];
   const wrap = $("symCards");
   if (wrap.querySelector(".empty")) wrap.innerHTML = "";
+  const live = new Set(st.symbols.map((s) => "sym-" + s.code));
+  wrap.querySelectorAll(".sym").forEach((c) => { if (!live.has(c.id)) c.remove(); });   // 外れた銘柄のカードを消す
   for (const s of st.symbols) {
     let card = document.getElementById("sym-" + s.code);
     if (!card) {
@@ -521,7 +538,8 @@ async function poll() {
     card.querySelector(".code").textContent = s.code;
     card.querySelector(".px").textContent = fmt(s.last, 6);
     card.querySelector(".ba").textContent = s.bid ? `買 ${fmt(s.bid, 6)} / 売 ${fmt(s.ask, 6)}` : "";
-    card.querySelector(".st").textContent = !s.enabled ? "新規停止中" : (s.ready ? "シグナル待ち" : "指標の準備中");
+    card.querySelector(".st").textContent = s.retiring ? "入れ替え待ち（決済後に外します）" : s.blocked ? "既存ポジションあり・売買しない" :
+      !s.enabled ? "新規停止中" : (s.ready ? "シグナル待ち" : "指標の準備中");
     const p = s.position, pe = card.querySelector(".pos");
     if (p) {
       unreal += p.unrealized;

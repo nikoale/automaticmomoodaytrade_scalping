@@ -97,6 +97,8 @@ class AutoSymbolConfig:
     min_turnover: float = 0.0       # 当日の売買代金の下限 (USD)
     min_amplitude_pct: float = 1.0  # 当日値幅 % の下限
     max_spread_pct: float = 0.1     # スプレッド % の上限 (気配が取れない場合は判定しない)
+    refresh_minutes: int = 30       # 稼働中に選び直す間隔 (0 = 開始時のみ)。時間帯が変わったときも選び直す
+    keep_rank_factor: float = 2.0   # 今の銘柄が上位 count × これ 以内なら入れ替えない (頻繁な入れ替え防止)
 
 
 @dataclass
@@ -132,6 +134,8 @@ class Config:
             raise ValueError("bar_minutes は 1/3/5/15 のいずれか")
         if self.auto_symbols.enabled and not 1 <= self.auto_symbols.count <= 20:
             raise ValueError("auto_symbols.count は 1〜20")
+        if self.auto_symbols.refresh_minutes and self.auto_symbols.refresh_minutes < 5:
+            raise ValueError("auto_symbols.refresh_minutes は 5 分以上 (0 で無効)")
         for s in self.symbols + [u.upper() for u in self.auto_symbols.universe]:
             if not s.upper().startswith(self.market + "."):
                 raise ValueError(f"銘柄 {s} は米国株のコードではありません (例: US.AAPL)")
