@@ -320,9 +320,10 @@ function renderWatch(wl) {
   if (wl.unknown_earnings && wl.unknown_earnings.length) notes += `<div class="note">決算日が取れなかった銘柄（要確認・除外）: ${esc(wl.unknown_earnings.join(", "))}</div>`;
   $("watchNote").innerHTML = notes;
   if (!wl.items.length) { t.innerHTML = `<tr><td class="empty">今週の監視銘柄はありません（新規エントリーなし）。</td></tr>`; return; }
-  t.innerHTML = `<tr><th>順位</th><th>銘柄</th><th>終値</th><th>20日高値</th><th>高値まで</th><th>ATR(14)</th><th>出来高の伸び</th><th>次回決算</th></tr>` +
+  const mcap = (v) => v === null || v === undefined ? "—" : v >= 1e9 ? fmt(v / 1e9, 1) + "B" : fmt(v / 1e6, 0) + "M";
+  t.innerHTML = `<tr><th>順位</th><th>銘柄</th><th>終値</th><th>20日高値</th><th>高値まで</th><th>ATR(14)</th><th>出来高の伸び</th><th title="moomoo の MARKET_VAL (ドルのはず)">時価総額</th><th>次回決算</th></tr>` +
     wl.items.map((x) => `<tr><td>${x.rank}</td><td><b>${esc(x.symbol)}</b></td><td>${fmt(x.close, 2)}</td><td>${fmt(x.high_20d, 2)}</td>
-      <td>${fmt((x.high_20d / x.close - 1) * 100, 1)}%</td><td>${fmt(x.atr_14, 2)}</td><td>${fmt(x.volume_ratio, 2)}倍</td><td>${esc(x.next_earnings || "—")}</td></tr>`).join("");
+      <td>${fmt((x.high_20d / x.close - 1) * 100, 1)}%</td><td>${fmt(x.atr_14, 2)}</td><td>${fmt(x.volume_ratio, 2)}倍</td><td>${mcap(x.market_cap)}</td><td>${esc(x.next_earnings || "—")}</td></tr>`).join("");
 }
 
 let lastReport = null;
