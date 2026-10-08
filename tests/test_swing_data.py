@@ -157,3 +157,33 @@ def test_existing_full_files_are_not_redownloaded(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(download=download))
     data.update_prices(c, ["AAA"])
     assert calls and calls[0] != "2010-01-01"           # 以前の版で取得済みの全期間データは差分更新だけ
+
+
+def test_ticker_NA_is_not_treated_as_missing(tmp_path):
+    nasdaq = "Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares\n" \
+             "NA|Nano Labs Ltd - Class A Ordinary Shares|Q|N|N|100|N|N\n" \
+             "AAPL|Apple Inc. - Common Stock|Q|N|N|100|N|N\nFile Creation Time: x|||||||\n"
+    other = "ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol\n" \
+            "NULL|Null Corp Common Stock|N|NULL|N|100|N|NULL\nFile Creation Time: x|||||||\n"
+    c = cfg(data={"dir": str(tmp_path)})
+    df = data.parse_symbol_directory(nasdaq, other, c)
+    assert list(df["symbol"]) == ["AAPL", "NA", "NULL"]
+    df.to_csv(c.path("universe.csv"), index=False)
+    back = data.load_universe(c)
+    assert list(back["symbol"]) == ["AAPL", "NA", "NULL"] and all(isinstance(s, str) for s in back["symbol"])
+
+
+def test_fetch_skips_bad_symbols_and_saves_benchmark_first(tmp_path, monkeypatch):
+    import sys
+    import types
+    c = cfg(data={"dir": str(tmp_path), "history_start": "2010-01-01"})
+    order = []
+
+    def download(tickers, start=None, **kw):
+        order.extend(tickers)
+        cols = pd.MultiIndex.from_product([tickers, ["Open", "High", "Low", "Close", "Volume"]])
+        return pd.DataFrame(2.0, index=pd.bdate_range(start, periods=300), columns=cols)
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(download=download))
+    data.update_prices(c, ["AAA", float("nan"), "", "SPY"])
+    assert order[0] == "SPY" and "AAA" in order and len(order) == 2
+    assert data.read_prices(c, "SPY") is not None

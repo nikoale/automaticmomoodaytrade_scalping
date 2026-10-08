@@ -30,6 +30,8 @@ STOOQ_URL = "https://stooq.com/q/d/l/?s={sym}.us&i=d"
 UA = "Mozilla/5.0 (swing-bot research)"
 
 PRICE_COLS = ["open", "high", "low", "close", "volume"]
+# ティッカーに "NA" (実在) などがあるので、pandas に「欠損値」と解釈させない
+TEXT_CSV = {"dtype": str, "keep_default_na": False, "na_values": []}
 
 
 def _ssl_context() -> ssl.SSLContext:
@@ -53,13 +55,13 @@ def parse_symbol_directory(nasdaq_txt: str, other_txt: str, cfg) -> pd.DataFrame
     """Nasdaq Trader のファイルから米国上場の普通株だけを残す。"""
     u = cfg.universe
     rows = []
-    nq = pd.read_csv(io.StringIO(nasdaq_txt), sep="|", dtype=str).fillna("")
+    nq = pd.read_csv(io.StringIO(nasdaq_txt), sep="|", **TEXT_CSV)
     nq = nq[~nq["Symbol"].str.startswith("File Creation Time")]
     for _, r in nq.iterrows():
         rows.append({"symbol": r["Symbol"], "name": r["Security Name"], "exchange": "NASDAQ",
                      "etf": r.get("ETF", "N"), "test": r.get("Test Issue", "N"),
                      "status": r.get("Financial Status", "")})
-    ot = pd.read_csv(io.StringIO(other_txt), sep="|", dtype=str).fillna("")
+    ot = pd.read_csv(io.StringIO(other_txt), sep="|", **TEXT_CSV)
     ot = ot[~ot["ACT Symbol"].str.startswith("File Creation Time")]
     ex_map = {"N": "NYSE", "A": "NYSE American", "P": "NYSE Arca", "Z": "Cboe BZX", "V": "IEX"}
     for _, r in ot.iterrows():
@@ -106,7 +108,8 @@ def load_universe(cfg) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError("過去データがまだありません。先に画面の「データ」タブで「過去データを取得・更新する」を押してください"
                                 "（コマンドの場合は python -m swing fetch all）")
-    return pd.read_csv(path, dtype=str)
+    df = pd.read_csv(path, **TEXT_CSV)
+    return df[df["symbol"].str.strip() != ""]
 
 
 def yahoo_symbol(sym: str) -> str:
@@ -167,6 +170,10 @@ def fetch_yahoo(symbols: list[str], start: str, chunk: int = 80, pause: float = 
     """yfinance でまとめて取得 (分割・配当調整済みの OHLC)。"""
     import yfinance as yf
     out: dict[str, pd.DataFrame] = {}
+    bad = [s for s in symbols if not isinstance(s, str) or not s.strip()]
+    if bad:
+        log.warning("おかしな銘柄コードを %d 件飛ばしました: %s", len(bad), bad[:5])
+        symbols = [s for s in symbols if isinstance(s, str) and s.strip()]
     for i in range(0, len(symbols), chunk):
         part = symbols[i:i + chunk]
         ymap = {yahoo_symbol(s): s for s in part}
@@ -202,6 +209,9 @@ def update_prices(cfg, symbols: list[str], start: str | None = None) -> int:
     記録がない銘柄は (途中までしかない可能性があるので) 開始日から全部取り直す。
     """
     start = start or cfg.data.history_start
+    # 市場フィルター用の SPY を先頭に (他の銘柄で問題が起きても必ず取れるように)
+    b = cfg.data.benchmark
+    symbols = ([b] if b in symbols else []) + [s for s in symbols if s != b]
     full = _load_full(cfg)
     todo_full, todo_inc = [], {}
     start_ts = pd.Timestamp(start)
@@ -216,16 +226,22 @@ def update_prices(cfg, symbols: list[str], start: str | None = None) -> int:
             todo_inc[s] = (old.index.max() - timedelta(days=7)).strftime("%Y-%m-%d")
     n = 0
     if cfg.data.price_source == "yahoo":
-        got_full = fetch_yahoo(todo_full, start) if todo_full else {}
-        for s, df in got_full.items():
-            write_prices(cfg, s, df)                 # 全期間で置き換え (途中までのデータは捨てる)
-            full[s] = start
-            n += 1
-        _save_full(cfg, full)
-        got = fetch_yahoo(list(todo_inc), min(todo_inc.values())) if todo_inc else {}
-        for s, df in got.items():
-            write_prices(cfg, s, _merge(read_prices(cfg, s), df))
-            n += 1
+        # 80 銘柄ずつ取って、その都度保存する (途中で止まっても、取れた分は残り、次回は続きから)
+        step = 80
+        for i in range(0, len(todo_full), step):
+            for s, df in fetch_yahoo(todo_full[i:i + step], start).items():
+                write_prices(cfg, s, df)             # 全期間で置き換え (途中までのデータは捨てる)
+                full[s] = start
+                n += 1
+            _save_full(cfg, full)
+            log.info("日足 (全期間): %d/%d 銘柄", min(i + step, len(todo_full)), len(todo_full))
+        inc = list(todo_inc)
+        for i in range(0, len(inc), step):
+            part = inc[i:i + step]
+            for s, df in fetch_yahoo(part, min(todo_inc[x] for x in part)).items():
+                write_prices(cfg, s, _merge(read_prices(cfg, s), df))
+                n += 1
+            log.info("日足 (差分): %d/%d 銘柄", min(i + step, len(inc)), len(inc))
     else:
         for s in todo_full + list(todo_inc):
             try:
@@ -258,7 +274,8 @@ def update_meta(cfg, symbols: list[str]) -> pd.DataFrame:
             log.info("銘柄情報: %d/%d", i + 1, len(symbols))
     df = pd.DataFrame(rows)
     path = cfg.path("meta.csv")
-    old = pd.read_csv(path) if path.exists() else pd.DataFrame(columns=df.columns)
+    old = pd.read_csv(path, keep_default_na=False, na_values=[""], dtype={"symbol": str}) \
+        if path.exists() else pd.DataFrame(columns=df.columns)
     df = pd.concat([old[~old["symbol"].isin(df["symbol"])], df]).sort_values("symbol")
     df.to_csv(path, index=False)
     return df
@@ -268,7 +285,7 @@ def load_meta(cfg) -> pd.DataFrame:
     path = cfg.path("meta.csv")
     if not path.exists():
         return pd.DataFrame(columns=["symbol", "market_cap", "shares", "asof"]).set_index("symbol")
-    return pd.read_csv(path).set_index("symbol")
+    return pd.read_csv(path, keep_default_na=False, na_values=[""], dtype={"symbol": str}).set_index("symbol")
 
 
 # ---------------------------------------------------------------- 決算日
