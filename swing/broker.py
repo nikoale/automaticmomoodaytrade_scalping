@@ -148,8 +148,8 @@ class Broker:
                                               currency=mm.Currency.JPY)
             if ret == mm.RET_OK and len(jpy):
                 tj, tu = _num(jpy.iloc[0].get("total_assets")), _num(u.get("total_assets"))
-                from .account import sane_fx
-                fx = sane_fx(self.cfg, tj / tu) if tj and tu else None
+                from .fx import sane
+                fx = sane(self.cfg, tj / tu) if tj and tu else None
         except Exception:  # noqa: BLE001 - 為替は補助情報
             fx = None
         return {"total_assets": _num(u.get("total_assets")), "cash": _num(u.get("cash")),

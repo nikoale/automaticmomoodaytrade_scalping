@@ -73,6 +73,14 @@ class App:
         self.account: dict | None = None      # 口座の残高 (メモリ上だけ。ファイルには保存しない)
         from .passwords import PasswordStore
         self.passwords = PasswordStore()
+        threading.Thread(target=self._refresh_fx, daemon=True, name="fx").start()   # 今の為替 (裏で 1 回)
+
+    def _refresh_fx(self) -> None:
+        from . import fx
+        try:
+            fx.refresh(self.cfg())
+        except Exception:  # noqa: BLE001 - 取れなくても画面は動く
+            pass
 
     # ---------------------------------------------------------------- 設定
     def settings_path(self) -> Path:
@@ -148,8 +156,10 @@ class App:
             job["finished"] = time.time()
 
     def _job_check(self) -> dict:
+        from . import fx
         from .moomoo_data import MoomooData
         cfg = self.cfg()
+        fx.refresh(cfg)
         log.info("OpenD %s:%s に接続します", cfg["moomoo"]["host"], cfg["moomoo"]["port"])
         with MoomooData(cfg) as m:
             ret, st = m.ctx.get_global_state()
@@ -172,7 +182,9 @@ class App:
         return res
 
     def _job_account(self) -> dict:
+        from . import fx
         from .account import AccountReader
+        fx.refresh(self.cfg())
         env = self.load_settings().get("account_env", "REAL")
         with AccountReader(self.cfg(), env) as r:
             self.account = r.snapshot()
@@ -261,6 +273,8 @@ class App:
                              "in_session": o <= now < c}
         t["env_config"] = str(cfg["moomoo"]["trd_env"]).upper()
         t["order_timing"] = cfg["executor"]["order_timing"]
+        from . import fx
+        t["fx"], t["fx_source"] = fx.current(cfg)
         return t
 
     # ---------------------------------------------------------------- 表示用の情報

@@ -418,7 +418,8 @@ function renderAccount(a, cap) {
   if (cap) kv($("capital"), [
     ["設定の運用資金", `${yen(cap.config_jpy)} <small>(${usd(cap.config_usd)})</small>`],
     ["口座の総資産", cap.account_usd === null || cap.account_usd === undefined ? "口座を読み込むと表示" : `${yen(cap.account_jpy)} <small>(${usd(cap.account_usd)})</small>`],
-    ["→ ボットが使う資金", `<b>${yen(cap.jpy)}</b> <small>(${usd(cap.usd)})</small>　${esc(cap.reason)}`]]);
+    ["→ ボットが使う資金", `<b>${yen(cap.jpy)}</b> <small>(${usd(cap.usd)})</small>　${esc(cap.reason)}`],
+    ["為替", `1ドル = ${fmt(cap.fx, 2)} 円 <small>（${esc(cap.fx_source || "")}）</small>`]]);
   if (!a) { $("acctMeta").textContent = "まだ読み込んでいません。OpenD にログインしてから「口座を読み込む」を押してください。"; $("acctKpis").innerHTML = "";
     $("posTable").innerHTML = `<tr><td class="empty">—</td></tr>`; return; }
   $("acctMeta").textContent = `${a.env === "REAL" ? "実口座" : "模擬口座"}（口座 ID ${a.acc_id}）・読み込み ${a.time}・為替 1ドル = ${fmt(a.fx, 2)} 円（${a.fx_source}）`;
@@ -447,7 +448,8 @@ function renderTrade(t) {
   if (h.on) $("btnTradeResume").onclick = tradeResume;
   const ns = t.next_session || {};
   const kv = [["口座", t.env_config === "SIMULATE" ? "模擬口座（SIMULATE）" : "⚠ config が " + esc(t.env_config) + "（画面からは発注しません）"],
-    ["ボットの資金", t.capital_usd == null ? "まだ始めていません（最初の処理で決まります）" : `${usd(t.equity_usd ?? t.capital_usd)} <small>（開始 ${usd(t.capital_usd)}・受渡済み現金 ${usd(t.cash_settled_usd)}）</small>`],
+    ["ボットの資金", t.capital_usd == null ? "まだ始めていません（最初の処理で決まります）" : `${usd(t.equity_usd ?? t.capital_usd)} ≒ ${yen((t.equity_usd ?? t.capital_usd) * t.fx)} <small>（開始 ${usd(t.capital_usd)}・受渡済み現金 ${usd(t.cash_settled_usd)}）</small>`],
+    ["為替", `1ドル = ${fmt(t.fx, 2)} 円 <small>（${esc(t.fx_source || "")}）</small>`],
     ["受渡待ち", (t.pending_sales || []).length ? t.pending_sales.map((x) => `${esc(x[0])} から ${usd(x[1])}`).join("、") : "なし"],
     ["今週の損失上限", t.week && t.week.tripped ? "⛔ 達したので今週は新規なし" : "OK"],
     ["次の寄り付き", ns.open_jst ? `${esc(ns.open_jst)}（引け ${esc(ns.close_jst)}）${ns.in_session ? "・今は取引時間中" : ""}` : "—"],

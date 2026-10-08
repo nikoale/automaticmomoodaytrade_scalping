@@ -212,7 +212,8 @@ class Executor:
             raise Halted(f"ボットの資金の計算がおかしいので始めません ({cap['usd']:,.2f} ドル・為替 {cap['fx']})")
         self.st.update({"acc_id": self.broker.acc_id, "created": self.now().isoformat(timespec="seconds"),
                         "capital_usd": cap["usd"], "cash_settled": cap["usd"]})
-        log.info("ボットの資金を %.2f ドル (約 %.0f 円) で始めます (%s)", cap["usd"], cap["jpy"], cap["reason"])
+        log.info("ボットの資金を %.2f ドル (約 %.0f 円) で始めます (%s・為替 1 ドル = %.2f 円: %s)",
+                 cap["usd"], cap["jpy"], cap["reason"], cap["fx"], cap["fx_source"])
         self.save()
 
     def _known_ids(self) -> set[str]:
@@ -816,6 +817,8 @@ class Session:
             from .passwords import PasswordStore
             pw, _ = (self.pws or PasswordStore()).get()
         self.lock.__enter__()
+        from . import fx
+        fx.refresh(self.cfg)                       # 今の為替 (取れなければ前の値・設定値)
         try:
             self.broker = Broker(self.cfg, env, unlock, pw)
             self.md = MoomooData(self.cfg)

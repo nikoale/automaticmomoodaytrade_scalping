@@ -16,6 +16,7 @@ import math
 from datetime import datetime
 
 from . import calendar_us
+from . import fx as fx_mod
 
 log = logging.getLogger(__name__)
 
@@ -89,13 +90,16 @@ class AccountReader:
         jpy = self._accinfo(acc_id, mm.Currency.JPY)
         # 為替: 同じ口座の総資産を ドル建て / 円建て で取った比 (moomoo の換算レートに合わせる)
         tu, tj = _num(usd.get("total_assets")), _num(jpy.get("total_assets"))
-        if tu and tj and tu > 0 and sane_fx(cfg, tj / tu):
-            fx, fx_src = tj / tu, "口座の総資産 (円 / ドル) から計算"
-        elif tu and tj and tu > 0:
-            fx, fx_src = float(cfg.account["fx_rate_jpy_per_usd"]), \
-                f"設定値 (口座の円 / ドルの比が {tj / tu:.2f} でおかしいため。模擬口座で起きます)"
-        else:
-            fx, fx_src = float(cfg.account["fx_rate_jpy_per_usd"]), "設定値 (口座から計算できなかったため)"
+        # 模擬口座は円とドルで同じ数字を返す (比が 1) → 範囲外なので使わず、Yahoo の今の為替か設定値
+        ratio = tj / tu if tu and tj and tu > 0 else None
+        fx, fx_src = fx_mod.current(cfg, ratio)
+        if ratio is not None and fx_src.startswith("口座"):
+            fx_src = "口座の総資産 (円 / ドル) から計算"
+        elif ratio is not None:
+            fx_src += f"。口座の円 / ドルの比 {ratio:.2f} は使えないため"
+        # 円の金額も、その為替でドルから換算し直す (模擬口座の円の数字はドルと同じなので)
+        jpy = {k: (_num(v) * fx if _num(v) is not None else None) for k, v in usd.items()} if ratio is not None \
+            and not fx_src.startswith("口座") else jpy
         summary = {k: {"label": lab, "usd": _num(usd.get(k)), "jpy": _num(jpy.get(k))} for k, lab in SUMMARY_FIELDS}
         ret, pdf = self.ctx.position_list_query(trd_env=self.env, acc_id=acc_id, position_market=mm.TrdMarket.US,
                                                 currency=mm.Currency.USD, refresh_cache=True)
@@ -124,25 +128,15 @@ class AccountReader:
                 "time": datetime.now(calendar_us.TOKYO).strftime("%Y-%m-%d %H:%M:%S")}
 
 
-def sane_fx(cfg, fx: float | None) -> float | None:
-    """口座から計算した為替 (円/ドル) が config の範囲内ならその値、外なら None。"""
-    lo, hi = cfg.account["fx_sane_range"]
-    if fx is None or not (lo <= fx <= hi):
-        if fx is not None:
-            log.warning("口座から計算した為替 %.4f 円/ドル は範囲 (%s〜%s) の外なので使いません (設定値を使います)", fx, lo, hi)
-        return None
-    return fx
-
-
 def effective_capital(cfg, account_total_usd: float | None = None, fx: float | None = None) -> dict:
     """ボットが使う資金 (USD と円)。
 
     account.capital_source:
       config  → 設定の運用資金 (capital_jpy) だけを使う
       account → 「設定の運用資金」と「口座の総資産」の小さい方 (口座に多くあっても設定額までしか使わない)
-    fx: 円/ドル。口座を読み込んでいれば口座の換算レート、なければ設定値。
+    fx: 口座から計算した 円/ドル (範囲外なら使わず、Yahoo の今の為替 → 設定値の順)。
     """
-    fx = sane_fx(cfg, fx) or float(cfg.account["fx_rate_jpy_per_usd"])
+    fx, fx_src = fx_mod.current(cfg, fx)
     conf_jpy = float(cfg.account["capital_jpy"])
     conf_usd = conf_jpy / fx
     src = cfg.account["capital_source"]
@@ -154,4 +148,4 @@ def effective_capital(cfg, account_total_usd: float | None = None, fx: float | N
         why = "設定の運用資金" + ("（口座を読み込むと、口座の総資産と比べます）" if src == "account" else "")
     return {"usd": use, "jpy": use * fx, "config_usd": conf_usd, "config_jpy": conf_jpy,
             "account_usd": account_total_usd, "account_jpy": account_total_usd * fx if account_total_usd is not None else None,
-            "fx": fx, "source": src, "reason": why}
+            "fx": fx, "fx_source": fx_src, "source": src, "reason": why}
