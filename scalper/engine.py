@@ -119,6 +119,7 @@ class SymbolEngine:
             if new_stop > p.stop:
                 log.debug("%s trail stop %.4f -> %.4f", self.code, p.stop, new_stop)
                 p.stop = new_stop
+                self._sync_protect()
         else:
             new_stop = p.stop
             if ex.breakeven_atr > 0 and p.entry_price - p.best_price >= ex.breakeven_atr * p.atr:
@@ -127,6 +128,7 @@ class SymbolEngine:
                 new_stop = min(new_stop, round_to_tick(p.best_price + ex.trail_atr * atr, tick, "up"))
             if new_stop < p.stop:
                 p.stop = new_stop
+                self._sync_protect()
 
     # ------------------------------------------------------------------ tick (live)
     def check_price(self, price: float, t: datetime) -> None:
@@ -185,7 +187,23 @@ class SymbolEngine:
         if thint is not None and (thint - price) * sign > tick:
             target_dist = thint - price if is_long else price - thint
 
+        # 手数料負け防止: 利確幅が往復コスト (手数料 + スリッページ) の何倍あるか
+        ec = self.cfg.execution
+        round_trip_cost = 2 * price * ec.commission_rate + 2 * ec.slippage_ticks * tick
+        if ex.min_reward_cost_ratio > 0 and target_dist < ex.min_reward_cost_ratio * round_trip_cost:
+            log.debug("%s skip entry: 利確幅 %.4f < 往復コスト %.4f × %.1f", self.code, target_dist,
+                      round_trip_cost, ex.min_reward_cost_ratio)
+            return
+
         qty = self.risk.position_size(price, stop_dist, self.lot_size)
+        bp = self.broker.buying_power()
+        if bp is not None and qty > 0:
+            # 買付余力の 95% まで (手数料・価格変動の余裕)
+            lot = float(self.lot_size or 1)
+            max_qty = int(bp * 0.95 / price / lot) * lot
+            if max_qty < qty:
+                log.info("%s 買付余力 %.0f USD に合わせて %g → %g 株", self.code, bp, qty, max_qty)
+                qty = max_qty
         if qty <= 0:
             log.debug("%s size=0 (price=%.2f stop_dist=%.4f)", self.code, price, stop_dist)
             return
@@ -205,9 +223,16 @@ class SymbolEngine:
         self.position = Position(qty=fill.qty * sign, entry_price=fp, entry_time=fill.time, stop=stop,
                                  target=target, best_price=fp, entry_commission=fill.commission, atr=atr,
                                  reason=signal.value)
+        self.position.protect_id = self.broker.protect(self.code, fill.qty, stop, is_long)
         self.risk.on_open(self.code)
         log.info("%s ENTER %s %g @ %.4f stop=%.4f target=%.4f", self.code, signal.value, fill.qty, fp,
                  stop, target)
+
+    def _sync_protect(self) -> None:
+        """口座側の保護ストップを今の損切り価格・数量に合わせる。"""
+        p = self.position
+        if p is not None and p.protect_id is not None:
+            p.protect_id = self.broker.update_protect(p.protect_id, self.code, abs(p.qty), p.stop, p.is_long)
 
     def _exit(self, ref_price: float, t: datetime, reason: str, slippage: bool = True) -> None:
         p = self.position
@@ -215,6 +240,16 @@ class SymbolEngine:
             return
         if self._exit_retry_at is not None and t < self._exit_retry_at:
             return
+        # 先に口座側の保護ストップを取り消す (二重に売らないため)。取消前に約定していたらそれを決済とする
+        if p.protect_id is not None:
+            dealt, avg = self.broker.release_protect(p.protect_id)
+            p.protect_id = None
+            if dealt > 0:
+                comm = self.broker.commission(avg or p.stop, dealt, self.cfg.execution)
+                self._record_exit(min(dealt, abs(p.qty)), avg or p.stop, comm, t, "protective_stop")
+                if self.position is None:
+                    return
+                p = self.position
         side = Side.SELL if p.is_long else Side.BUY
         qty = abs(p.qty)
         # 利確は指値に当たった想定なのでシミュレーションではスリッページなし
@@ -222,17 +257,25 @@ class SymbolEngine:
         if fill is None or fill.qty <= 0:
             log.warning("%s exit (%s) not filled; retry in %ds", self.code, reason, EXIT_RETRY_SECONDS)
             self._exit_retry_at = t + timedelta(seconds=EXIT_RETRY_SECONDS)
+            p.protect_id = self.broker.protect(self.code, qty, p.stop, p.is_long)   # 保護を戻す
             return
         self._exit_retry_at = None
-        filled = min(fill.qty, qty)
+        self._record_exit(min(fill.qty, qty), fill.price, fill.commission, fill.time, reason)
+        if self.position is not None:   # 一部だけ約定 → 残りに保護ストップを置き直す
+            self.position.protect_id = self.broker.protect(self.code, abs(self.position.qty), self.position.stop,
+                                                           self.position.is_long)
+
+    def _record_exit(self, filled: float, price: float, commission: float, t: datetime, reason: str) -> None:
+        """filled 株の決済を記録する。全部決済したらポジションを閉じる。"""
+        p = self.position
+        qty = abs(p.qty)
         sign = 1 if p.is_long else -1
         entry_comm = p.entry_commission * filled / qty
-        pnl = (fill.price - p.entry_price) * filled * sign - entry_comm - fill.commission
+        pnl = (price - p.entry_price) * filled * sign - entry_comm - commission
         trade = Trade(self.code, "LONG" if p.is_long else "SHORT", filled, p.entry_time, p.entry_price,
-                      fill.time, fill.price, pnl, reason, p.bars_held)
+                      t, price, pnl, reason, p.bars_held)
         self.trades.append(trade)
-        log.info("%s EXIT %s %g @ %.4f pnl=%.2f (%s)", self.code, trade.direction, filled, fill.price, pnl,
-                 reason)
+        log.info("%s EXIT %s %g @ %.4f pnl=%.2f (%s)", self.code, trade.direction, filled, price, pnl, reason)
         if self.on_trade:
             self.on_trade(trade)
         if filled < qty:
@@ -242,6 +285,13 @@ class SymbolEngine:
             return
         self.position = None
         self.risk.on_close(self.code, pnl)
+
+    def on_external_close(self, qty: float, price: float, t: datetime, reason: str) -> None:
+        """ボットの外で決済されていた分 (保護ストップの約定など) を記録する。"""
+        if self.position is None or qty <= 0:
+            return
+        comm = self.broker.commission(price, qty, self.cfg.execution)
+        self._record_exit(min(qty, abs(self.position.qty)), price, comm, t, reason)
 
     def force_flatten(self, t: datetime, reason: str = "manual") -> None:
         if self.position is not None and self.last_price is not None:

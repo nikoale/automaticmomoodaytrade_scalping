@@ -92,3 +92,41 @@ def test_build_config_auto():
     from scalper.gui.server import build_config
     cfg = build_config({"preset": "us", "auto": True, "auto_count": "4"})
     assert cfg.auto_symbols.enabled and cfg.auto_symbols.count == 4
+
+
+def test_live_requires_confirmation_and_password_never_saved(gui, tmp_path):
+    from scalper.gui import server
+    from scalper.gui.server import build_config
+    base = {"preset": "us", "mode": "live", "symbols": "US.NVDA", "auto": False}
+    with pytest.raises(ValueError, match="理解しました"):
+        build_config({**base, "password": "pw"})
+    with pytest.raises(ValueError, match="パスワード"):
+        build_config({**base, "confirm_live": True})
+    with pytest.raises(ValueError, match="時間外"):
+        build_config({**base, "preset": "us_ext", "confirm_live": True, "password": "pw"})
+    cfg = build_config({**base, "confirm_live": True, "password": "secret-pw"})
+    assert cfg.mode == "live" and cfg.trade_password() == "secret-pw"
+    app, call = gui
+    app.save_settings({**base, "confirm_live": True, "password": "secret-pw"})
+    saved = server.SETTINGS_FILE.read_text(encoding="utf-8")
+    assert "secret-pw" not in saved and "confirm_live" not in saved
+
+
+def test_live_start_via_api_unlocks_and_runs(gui):
+    app, call = gui
+    s = {"preset": "us", "mode": "live", "symbols": "US.NVDA", "auto": False, "confirm_live": True,
+         "password": "pw123"}
+    _, r = call("/api/check", {"settings": s})
+    assert r["ok"] and any("実口座" in line for line in r["lines"])
+    _, r = call("/api/start", {"settings": s})
+    assert r["ok"]
+    for _ in range(50):
+        _, st = call("/api/state?since=0")
+        if st["phase"] == "running":
+            break
+        time.sleep(0.1)
+    assert st["phase"] == "running" and st["mode"] == "live"
+    ctx = sys.modules["moomoo"].OpenSecTradeContext.instances[-1]
+    assert ctx.unlocked == "pw123"
+    assert not any("pw123" in line["msg"] for line in st["logs"])     # ログにパスワードが出ない
+    assert call("/api/stop", {})[1]["ok"]

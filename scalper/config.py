@@ -59,6 +59,8 @@ class ExitConfig:
     max_hold_bars: int = 30      # 時間切れ決済までの最大保有本数
     min_stop_ticks: int = 2      # 損切り幅の下限 (呼値単位)
     min_atr_ticks: float = 3.0   # ATR が呼値 × これ 未満の銘柄・時間帯は値幅不足として見送る
+    # 利確幅が「往復の手数料 + スリッページ」× これ 未満なら見送る (手数料負け防止)。0 で無効
+    min_reward_cost_ratio: float = 2.0
 
 
 @dataclass
@@ -80,10 +82,14 @@ class ExecutionConfig:
     tick_size: Any = "auto"         # "auto" なら 1 ドル以上 0.01 / 未満 0.0001
     slippage_ticks: float = 1.0     # バックテスト / paper の想定スリッページ
     commission_per_order: float = 0.0
-    commission_rate: float = 0.0    # 約定代金に対する手数料率
+    commission_rate: float = 0.00132  # 約定代金に対する手数料率 (moomoo証券 米国株 ベーシック: 0.132%)
+    commission_max: float = 22.0      # 1 注文あたりの手数料上限 (USD)。0 で上限なし
     limit_offset_ticks: int = 1     # 実発注時、最良気配から何ティック不利側に指値を置くか
     order_timeout_sec: float = 5.0  # この秒数で約定しなければ取消
     use_market_orders: bool = False # True で成行 (スリッページに注意)
+    protective_stop: bool = True    # simulate/live: 建玉と同時に口座側にも逆指値を置く (ボット停止時の保険)
+    max_orders_per_minute: int = 10 # 新規注文がこれを超えたら暴走とみなして当日停止
+    reconcile_seconds: int = 30     # simulate/live: 口座の保有株数とボットの認識を照合する間隔
 
 
 @dataclass
@@ -121,7 +127,8 @@ class Config:
         return self.moomoo.trd_market.upper()
 
     def trade_password(self) -> str | None:
-        return os.environ.get(self.moomoo.trade_password_env) or None
+        # GUI から渡されたパスワード (ファイルには保存しない) → 環境変数 の順
+        return getattr(self, "runtime_password", None) or os.environ.get(self.moomoo.trade_password_env) or None
 
     def validate(self) -> None:
         if self.mode not in MODES:

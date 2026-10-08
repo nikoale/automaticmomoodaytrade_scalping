@@ -71,6 +71,8 @@ def run_check(cfg: Config, out: Callable[[str], None]) -> bool:
                     bids = [(p, v) for p, v, *_ in ob.get("Bid", [])]
                     out(f"  板 売: {asks}\n     買: {bids}")
         out("✅ OpenD との接続と相場取得は正常です。")
+        if cfg.mode in ("simulate", "live"):
+            return _check_account(cfg, out)
         return True
     finally:
         ctx.close()
@@ -126,3 +128,33 @@ def screen_preview(cfg: Config) -> list[dict]:
         return screen(cfg, ctx, mm)
     finally:
         ctx.close()
+
+
+def _check_account(cfg: Config, out: Callable[[str], None]) -> bool:
+    """模擬口座 / 実口座の残高・保有株・残っている注文を表示する (発注はしない)。"""
+    from .moomoo_broker import MoomooBroker
+    label = "moomoo 模擬口座" if cfg.mode == "simulate" else "★ 実口座"
+    out(f"\n[{label}]")
+    try:
+        broker = MoomooBroker(cfg)
+    except (Exception, SystemExit) as e:
+        out(f"❌ 口座に接続できません: {e}")
+        return False
+    try:
+        info = broker.account_summary()
+        out(f"  総資産={info.get('total_assets')}  現金={info.get('cash')}  "
+            f"買付余力={info.get('usd_net_cash_power') or info.get('power')} (USD)")
+        pos = broker.positions()
+        out("  保有株: " + (", ".join(f"{c} {q:g}株" for c, q in pos.items()) if pos else "なし"))
+        if pos:
+            out("  ※ 保有中の銘柄はボットが売買しません (手動のポジションを守るため)")
+        orders = broker.open_bot_orders()
+        if orders:
+            out("  ボットが前回出した注文: " + ", ".join(f"{o['code']} {o['remark']}" for o in orders))
+        out(f"✅ {label}に接続できました。")
+        return True
+    except Exception as e:
+        out(f"❌ 口座情報の取得に失敗: {e}")
+        return False
+    finally:
+        broker.close()

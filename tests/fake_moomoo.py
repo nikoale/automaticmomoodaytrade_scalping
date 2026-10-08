@@ -9,57 +9,90 @@ class _E:
         self.__dict__.update(kw)
 
 
-def build(fill_mode="full"):
+def build(fill_mode="full", positions=None, power=1e9):
+    """fill_mode: full=即全約定 / partial=半分約定 / none=約定しない。positions: 口座の初期保有株。"""
     m = types.ModuleType("moomoo")
     m.RET_OK, m.RET_ERROR = 0, -1
     m.TrdEnv = _E(REAL="REAL", SIMULATE="SIMULATE")
     m.TrdMarket = _E(US="US")
     m.SecurityFirm = _E(FUTUJP="FUTUJP")
     m.TrdSide = _E(BUY="BUY", SELL="SELL")
-    m.OrderType = _E(NORMAL="NORMAL", MARKET="MARKET")
-    m.ModifyOrderOp = _E(CANCEL="CANCEL")
+    m.OrderType = _E(NORMAL="NORMAL", MARKET="MARKET", STOP="STOP")
+    m.ModifyOrderOp = _E(CANCEL="CANCEL", NORMAL="NORMAL")
+    m.TimeInForce = _E(DAY="DAY", GTC="GTC")
+    m.Currency = _E(USD="USD")
+    init_positions = {"US.TEST": 100} if positions is None else dict(positions)
 
     class Ctx:
+        """模擬の口座。通常注文は fill_mode に従って約定し保有株に反映、STOP 注文は待機する。"""
         instances = []
 
         def __init__(self, **kw):
             self.kw = kw
-            self.orders = {}
+            self.orders = {}        # oid -> dict(status, dealt, avg, code, side, qty, type, remark, stop)
             self.placed = []
             self.cancelled = []
+            self.modified = []
             self.unlocked = None
+            self.holdings = dict(init_positions)
+            self.power = power
             Ctx.instances.append(self)
 
         def unlock_trade(self, pwd):
             self.unlocked = pwd
             return 0, None
 
-        def place_order(self, price, qty, code, trd_side, **kw):
+        def _apply(self, code, side, qty):
+            self.holdings[code] = self.holdings.get(code, 0) + (qty if side == "BUY" else -qty)
+
+        def place_order(self, price, qty, code, trd_side, order_type="NORMAL", **kw):
             oid = str(len(self.placed) + 1)
-            self.placed.append(dict(price=price, qty=qty, code=code, side=trd_side, **kw))
-            if fill_mode == "full":
-                self.orders[oid] = ("FILLED_ALL", qty, price)
-            elif fill_mode == "partial":
-                self.orders[oid] = ("FILLED_PART", qty // 2, price)
-            else:
-                self.orders[oid] = ("SUBMITTED", 0, 0.0)
+            self.placed.append(dict(price=price, qty=qty, code=code, side=trd_side, order_type=order_type, **kw))
+            o = {"code": code, "side": trd_side, "qty": qty, "type": order_type, "remark": kw.get("remark", ""),
+                 "stop": kw.get("aux_price"), "status": "SUBMITTED", "dealt": 0, "avg": 0.0}
+            if order_type != "STOP":
+                if fill_mode == "full":
+                    o.update(status="FILLED_ALL", dealt=qty, avg=price)
+                elif fill_mode == "partial":
+                    o.update(status="FILLED_PART", dealt=qty // 2, avg=price)
+                if o["dealt"]:
+                    self._apply(code, trd_side, o["dealt"])
+            self.orders[oid] = o
             return 0, pd.DataFrame([{"order_id": oid}])
 
+        def trigger_stop(self, oid, price):
+            """テスト用: 逆指値が約定したことにする。"""
+            o = self.orders[oid]
+            o.update(status="FILLED_ALL", dealt=o["qty"], avg=price)
+            self._apply(o["code"], o["side"], o["qty"])
+
+        def _row(self, oid, o):
+            return {"order_id": oid, "code": o["code"], "order_status": o["status"], "dealt_qty": o["dealt"],
+                    "dealt_avg_price": o["avg"], "remark": o["remark"], "qty": o["qty"]}
+
         def order_list_query(self, order_id="", **kw):
-            st, dq, px = self.orders[order_id]
-            return 0, pd.DataFrame([{"order_status": st, "dealt_qty": dq, "dealt_avg_price": px}])
+            if order_id:
+                return 0, pd.DataFrame([self._row(order_id, self.orders[order_id])])
+            return 0, pd.DataFrame([self._row(k, o) for k, o in self.orders.items()])
 
         def modify_order(self, op, order_id, qty, price, **kw):
-            self.cancelled.append(order_id)
-            st, dq, px = self.orders[order_id]
-            self.orders[order_id] = ("CANCELLED_PART" if dq else "CANCELLED_ALL", dq, px)
+            o = self.orders[order_id]
+            if op == "CANCEL":
+                self.cancelled.append(order_id)
+                if o["status"] not in ("FILLED_ALL",):
+                    o["status"] = "CANCELLED_PART" if o["dealt"] else "CANCELLED_ALL"
+            else:
+                self.modified.append((order_id, qty, price, kw.get("aux_price")))
+                o.update(qty=qty, stop=kw.get("aux_price"))
             return 0, None
 
         def position_list_query(self, **kw):
-            return 0, pd.DataFrame([{"code": "US.TEST", "qty": 100, "position_side": "LONG"}])
+            rows = [{"code": c, "qty": q, "position_side": "LONG"} for c, q in self.holdings.items() if q]
+            return 0, pd.DataFrame(rows, columns=["code", "qty", "position_side"])
 
         def accinfo_query(self, **kw):
-            return 0, pd.DataFrame([{"cash": 1}])
+            return 0, pd.DataFrame([{"cash": self.power, "power": self.power, "usd_net_cash_power": self.power,
+                                     "total_assets": self.power}])
 
         def close(self):
             pass

@@ -81,6 +81,8 @@ def build_config(s: dict) -> Config:
             setattr(r, attr, conv(s[key]))
     if s.get("risk_pct") not in (None, ""):
         r.risk_per_trade = float(s["risk_pct"]) / 100.0
+    if s.get("bar_minutes") not in (None, ""):
+        cfg.bar_minutes = int(s["bar_minutes"])
     if "auto" in s:
         cfg.auto_symbols.enabled = bool(s["auto"])
     if s.get("auto_count") not in (None, ""):
@@ -93,10 +95,18 @@ def build_config(s: dict) -> Config:
         cfg.moomoo.port = int(s["port"])
     cfg.log_dir = str(ROOT / "logs")
     mode = s.get("mode") or "paper"
-    if mode not in ("paper", "simulate"):
-        raise ValueError("GUI では paper / simulate のみ使えます (実口座はコマンドの --confirm-live で)")
-    if mode == "simulate" and cfg.session.us_session.upper() != "RTH":
-        raise ValueError("時間外取引は paper のみ対応です (moomoo 模擬口座での時間外注文は未検証)")
+    if mode not in ("paper", "simulate", "live"):
+        raise ValueError(f"不明なモード: {mode}")
+    if mode != "paper" and cfg.session.us_session.upper() != "RTH":
+        raise ValueError("時間外取引は paper のみ対応です (moomoo 口座での時間外注文は未検証)")
+    if mode == "live":
+        if not s.get("confirm_live"):
+            raise ValueError("実口座で取引するには「実際のお金で取引することを理解しました」にチェックしてください")
+        if not s.get("password"):
+            raise ValueError("実口座では moomoo の取引パスワードを入力してください")
+        if cfg.risk.max_daily_loss <= 0:
+            raise ValueError("実口座では 1日の損失上限 を設定してください")
+        cfg.runtime_password = str(s["password"])   # メモリ上だけ。ファイルにもログにも残さない
     cfg.mode = mode
     cfg.validate()
     return cfg
@@ -110,7 +120,7 @@ def preset_defaults() -> dict:
             "label": p["label"], "symbols": ", ".join(cfg.symbols), "strategy": cfg.strategy.name,
             "account_size": cfg.risk.account_size, "risk_pct": round(cfg.risk.risk_per_trade * 100, 3),
             "max_daily_loss": cfg.risk.max_daily_loss, "max_position_value": cfg.risk.max_position_value,
-            "currency": "USD", "auto_count": cfg.auto_symbols.count,
+            "currency": "USD", "auto_count": cfg.auto_symbols.count, "bar_minutes": cfg.bar_minutes,
             "auto_refresh": cfg.auto_symbols.refresh_minutes,
             # 時間外の注文は moomoo 模擬口座で未検証なので paper のみ
             "simulate_ok": cfg.session.us_session.upper() == "RTH",
@@ -138,6 +148,8 @@ class App:
             return {}
 
     def save_settings(self, s: dict) -> None:
+        # パスワードと実口座の同意は保存しない (毎回入力してもらう)
+        s = {k: v for k, v in s.items() if k not in ("password", "confirm_live")}
         try:
             SETTINGS_FILE.write_text(json.dumps(s, ensure_ascii=False, indent=2), encoding="utf-8")
         except OSError:

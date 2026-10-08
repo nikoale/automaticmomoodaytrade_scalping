@@ -39,6 +39,8 @@ def make_cfg(**risk) -> Config:
     cfg.session.no_entry_last_minutes = 0
     cfg.session.flatten_before_close_minutes = 5
     cfg.execution.slippage_ticks = 0
+    cfg.execution.commission_rate = 0
+    cfg.exits.min_reward_cost_ratio = 0
     cfg.execution.tick_size = 1
     cfg.exits.stop_atr = 1.0
     cfg.exits.target_atr = 2.0

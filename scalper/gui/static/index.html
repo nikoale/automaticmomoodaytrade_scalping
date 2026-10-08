@@ -50,6 +50,11 @@ button.big { width: 100%; padding: 12px; font-size: 15px; margin-top: 8px; }
 .seg input { display: none; }
 .seg label:has(input:checked) { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .seg label:has(input:disabled) { opacity: .4; cursor: not-allowed; }
+.seg label.live-opt:has(input:checked) { background: var(--down); }
+.live-panel { margin-top: 8px; padding: 10px; border: 1px solid var(--down); border-radius: 8px; color: var(--down);
+  background: rgba(214,64,74,.06); font-size: 13px; }
+.pill.live { background: var(--down); color: #fff; }
+.acct { font-size: 12px; color: var(--muted); margin: -4px 0 12px; }
 details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 12px; }
 .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
 .tabs button { background: transparent; border-color: transparent; color: var(--muted); }
@@ -124,16 +129,31 @@ th { color: var(--muted); font-weight: 600; }
       <button id="btnScreen" style="width:100%; margin-top:6px">候補ランキングを見る</button>
       <div id="autoHint" class="hint"></div>
 
-      <label>戦略</label>
-      <select id="strategy"></select>
+      <div class="row">
+        <div style="flex:2"><label>戦略</label><select id="strategy"></select></div>
+        <div style="flex:1"><label>足の長さ</label>
+          <select id="bar_minutes"><option value="1">1分</option><option value="3">3分</option>
+            <option value="5">5分</option><option value="15">15分</option></select></div>
+      </div>
       <div id="strategyInfo" class="hint"></div>
 
       <label>モード</label>
       <div class="seg">
-        <label><input type="radio" name="mode" value="paper" checked>paper（練習）</label>
-        <label><input type="radio" name="mode" value="simulate">moomoo模擬口座</label>
+        <label><input type="radio" name="mode" value="paper" checked>練習</label>
+        <label><input type="radio" name="mode" value="simulate">模擬口座</label>
+        <label class="live-opt"><input type="radio" name="mode" value="live">実口座</label>
       </div>
-      <div class="hint">paper は本物の相場で模擬売買し、お金は動きません。moomoo模擬口座は通常取引のみ。実口座は安全のためGUIからは使えません。</div>
+      <div id="livePanel" class="live-panel" style="display:none">
+        <b>⚠ 実口座：本物のお金で売買します</b>
+        <label>moomoo の取引パスワード（保存されません）</label>
+        <input id="password" type="password" autocomplete="off">
+        <label style="display:flex; gap:6px; align-items:center; color:var(--text)">
+          <input type="checkbox" id="confirm_live" style="width:auto"> 実際のお金で取引することを理解しました</label>
+        <div class="hint">先に「① 接続チェック」で口座の残高・保有株を確認してください。保有中の銘柄には触りません。
+          建玉と同時に口座側にも逆指値（保護ストップ）を置くので、Mac が止まっても損切りされます。</div>
+      </div>
+      <div class="hint">練習（paper）は本物の相場で模擬売買し、お金は動きません。模擬口座は moomoo の模擬口座に発注します。
+        模擬口座・実口座は通常取引のみ。おすすめの順番：練習 → 模擬口座 → 実口座（少額から）。</div>
 
       <div class="row">
         <div><label>運用資金 <span class="cur"></span></label><input id="account_size" type="number" step="any"></div>
@@ -175,6 +195,7 @@ th { color: var(--muted); font-weight: 600; }
         <div class="card kpi"><div class="k">今日の取引回数</div><div class="v" id="kTrades">—</div></div>
         <div class="card kpi"><div class="k">状態</div><div class="v" id="kHalt" style="font-size:15px">—</div></div>
       </div>
+      <div id="acct" class="acct"></div>
       <div class="controls">
         <button id="btnPause" disabled>⏸ 新規エントリー停止</button>
         <button id="btnResume" disabled>▶ 再開</button>
@@ -255,7 +276,7 @@ th { color: var(--muted); font-weight: 600; }
 const TOKEN = "__TOKEN__";
 const $ = (id) => document.getElementById(id);
 let META = null, logSeq = 0, lastState = null;
-const REASONS = { target: "利確", stop: "損切り", time_stop: "時間切れ", session_end: "引け前決済", signal: "シグナル",
+const REASONS = { protective_stop: "口座側の逆指値", external_close: "口座で決済", target: "利確", stop: "損切り", time_stop: "時間切れ", session_end: "引け前決済", signal: "シグナル",
   risk_halt: "損失上限", manual: "手動決済", shutdown: "停止時決済", end_of_data: "データ終了" };
 const PHASES = { idle: "停止中", connecting: "接続中…", screening: "銘柄選定中…", warming: "準備中…", running: "稼働中", stopped: "停止中", error: "エラー" };
 
@@ -274,23 +295,25 @@ const short = (t) => t ? String(t).slice(5, 16) : "";
 function settings() {
   return {
     preset: $("preset").value, symbols: $("symbols").value, strategy: $("strategy").value,
+    bar_minutes: $("bar_minutes").value,
     mode: document.querySelector("input[name=mode]:checked").value,
     account_size: $("account_size").value, risk_pct: $("risk_pct").value,
     max_daily_loss: $("max_daily_loss").value, max_position_value: $("max_position_value").value,
     host: $("host").value, port: $("port").value,
     auto: $("auto").checked, auto_count: $("auto_count").value, auto_refresh: $("auto_refresh").value,
+    password: $("password").value, confirm_live: $("confirm_live").checked,
   };
 }
 function applyPreset(key, keepSymbols) {
   const p = META.presets[key];
   if (!keepSymbols) {
-    $("symbols").value = p.symbols; $("strategy").value = p.strategy;
+    $("symbols").value = p.symbols; $("strategy").value = p.strategy; $("bar_minutes").value = p.bar_minutes;
     for (const k of ["account_size", "risk_pct", "max_daily_loss", "max_position_value", "auto_count", "auto_refresh"]) $(k).value = p[k];
   }
   document.querySelectorAll(".cur").forEach((e) => e.textContent = "(" + p.currency + ")");
-  const sim = document.querySelector("input[name=mode][value=simulate]");
-  sim.disabled = !p.simulate_ok;
+  for (const v of ["simulate", "live"]) document.querySelector(`input[name=mode][value=${v}]`).disabled = !p.simulate_ok;
   if (!p.simulate_ok) document.querySelector("input[name=mode][value=paper]").checked = true;
+  if (typeof updateMode === "function") updateMode();
   updateHints();
 }
 function updateAuto() {
@@ -307,7 +330,9 @@ function updateHints() {
   $("strategyInfo").textContent = META.strategies[$("strategy").value] || "";
   const p = META.presets[$("preset").value];
   const risk = Number($("account_size").value) * Number($("risk_pct").value) / 100;
-  $("riskHint").textContent = `→ 1回の損切りで最大 約${fmt(risk, 0)}${p.currency}、1日 ${fmt($("max_daily_loss").value, 0)}${p.currency} 負けたらその日は停止`;
+  $("riskHint").textContent = `→ 1回の損切りで最大 約${fmt(risk, 0)}${p.currency}、1日 ${fmt($("max_daily_loss").value, 0)}${p.currency} 負けたらその日は停止。` +
+    `手数料 0.132%（往復 0.264%）込みで計算し、利確幅が手数料の2倍に満たない場面は見送ります` +
+    ($("bar_minutes").value === "1" ? "（1分足は値幅が小さく、ほとんど取引しない可能性があります）" : "");
 }
 function banner(msg, kind = "err") {
   const b = $("banner"); b.className = "banner on " + kind; b.textContent = msg;
@@ -324,19 +349,20 @@ async function init() {
   $("preset").value = s.preset || "us";
   applyPreset($("preset").value, false);
   if (s.preset) {
-    for (const k of ["symbols", "strategy", "account_size", "risk_pct", "max_daily_loss", "max_position_value", "host", "port", "auto_count", "auto_refresh"])
+    for (const k of ["symbols", "strategy", "account_size", "risk_pct", "max_daily_loss", "max_position_value", "host", "port", "auto_count", "auto_refresh", "bar_minutes"])
       if (s[k] !== undefined && s[k] !== "") $(k).value = s[k];
     $("auto").checked = !!s.auto;
-    const m = document.querySelector(`input[name=mode][value=${s.mode}]`);
-    if (m && !m.disabled) m.checked = true;
+    const m = document.querySelector(`input[name=mode][value=${s.mode === "live" ? "paper" : s.mode}]`);
+    if (m && !m.disabled) m.checked = true;   // 実口座は毎回自分で選び直す
   }
-  updateHints(); updateAuto();
+  updateHints(); updateAuto(); updateMode();
   poll();
   setInterval(poll, 1000);
 }
 
 $("preset").onchange = () => applyPreset($("preset").value, false);
-for (const id of ["strategy", "account_size", "risk_pct", "max_daily_loss"]) $(id).oninput = updateHints;
+for (const id of ["strategy", "account_size", "risk_pct", "max_daily_loss", "bar_minutes"]) $(id).oninput = updateHints;
+$("bar_minutes").onchange = updateHints;
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
   for (const t of ["dash", "bt", "log"]) $("tab-" + t).style.display = b.dataset.tab === t ? "" : "none";
@@ -348,6 +374,13 @@ $("btnCheck").onclick = async () => {
   const r = await api("/api/check", { settings: settings() });
   $("checkOut").textContent = (r.lines || [r.error]).join("\n");
 };
+function updateMode() {
+  const live = document.querySelector("input[name=mode]:checked").value === "live";
+  $("livePanel").style.display = live ? "" : "none";
+  $("btnStart").textContent = live ? "② 実口座で開始" : "② 開始";
+  $("btnStart").style.background = live ? "var(--down)" : ""; $("btnStart").style.borderColor = live ? "var(--down)" : "";
+}
+document.querySelectorAll("input[name=mode]").forEach((r) => r.onchange = updateMode);
 $("auto").onchange = updateAuto; $("auto_count").oninput = updateAuto; $("auto_refresh").oninput = updateAuto;
 $("btnRefresh").onclick = () => api("/api/command", { cmd: "refresh" });
 $("btnScreen").onclick = async () => {
@@ -387,8 +420,15 @@ $("searchQ").onkeydown = (e) => { if (e.key === "Enter") $("btnDoSearch").click(
 
 $("btnStart").onclick = async () => {
   banner("");
-  const r = await api("/api/start", { settings: settings() });
+  const s = settings();
+  if (s.mode === "live") {
+    const msg = `実口座で自動売買を開始します。\n\n・1回の損切り: 最大 約${fmt(Number(s.account_size) * Number(s.risk_pct) / 100, 0)} USD\n` +
+      `・1日の損失上限: ${s.max_daily_loss} USD（達したら当日停止）\n・1ポジション上限: ${s.max_position_value} USD\n\n本当に開始しますか？`;
+    if (!confirm(msg)) return;
+  }
+  const r = await api("/api/start", { settings: s });
   if (!r.ok) banner(r.error);
+  $("password").value = "";   // 画面にも残さない
 };
 $("btnStop").onclick = async () => {
   if (!confirm("ボットを停止します。保有中のポジションは決済されます。よろしいですか？")) return;
@@ -499,13 +539,17 @@ async function poll() {
   const ph = st.running ? st.phase : (st.phase === "error" ? "error" : "idle");
   $("phase").textContent = PHASES[ph] || ph; $("phase").className = "pill " + ph;
   $("modeBadge").style.display = st.running ? "" : "none";
-  $("modeBadge").textContent = (st.mode === "paper" ? "paper" : "moomoo模擬口座") + " / " + (st.strategy || "");
+  $("modeBadge").textContent = ({ paper: "paper", simulate: "moomoo模擬口座", live: "⚠ 実口座" }[st.mode] || st.mode) + " / " + (st.strategy || "");
+  $("modeBadge").className = "pill" + (st.mode === "live" ? " live" : "");
+  const a = st.account || {};
+  $("acct").textContent = st.running && a.total_assets !== undefined && a.total_assets !== null ?
+    `口座: 総資産 ${fmt(a.total_assets)} USD ・ 買付余力 ${fmt(a.usd_net_cash_power || a.power)} USD（1分ごとに更新）` : "";
   $("btnStart").style.display = st.running ? "none" : ""; $("btnStop").style.display = st.running ? "" : "none";
   for (const id of ["btnPause", "btnResume", "btnFlatten", "btnRefresh"]) $(id).disabled = !(st.running && st.phase === "running");
   $("btnRefresh").style.display = st.running && st.auto ? "" : "none";
   $("refreshInfo").textContent = st.running && st.auto ?
     `前回の選定 ${st.last_refresh ? st.last_refresh.slice(11, 16) : "—"} ／ 次回 ${st.next_refresh ? st.next_refresh.slice(11, 16) : "市場が開いてから"}（市場時刻）` : "";
-  document.querySelectorAll("#preset, #symbols, #strategy, input[name=mode], #account_size, #risk_pct, #max_daily_loss, #max_position_value, #host, #port")
+  document.querySelectorAll("#preset, #symbols, #strategy, input[name=mode], #account_size, #risk_pct, #max_daily_loss, #max_position_value, #host, #port, #password, #confirm_live, #bar_minutes")
     .forEach((e) => { if (e.name !== "mode" || !st.running) e.disabled = st.running; });
   if (!st.running) applyPresetModeLock();
   if (st.phase === "error" && st.error) banner("停止しました: " + st.error);
@@ -561,7 +605,7 @@ async function poll() {
 }
 function applyPresetModeLock() {
   const p = META && META.presets[$("preset").value];
-  if (p) document.querySelector("input[name=mode][value=simulate]").disabled = !p.simulate_ok;
+  if (p) for (const v of ["simulate", "live"]) document.querySelector(`input[name=mode][value=${v}]`).disabled = !p.simulate_ok;
 }
 window.onresize = () => { if (window._bt) drawEquity(window._bt); };
 init();

@@ -54,6 +54,7 @@ class Position:
     entry_commission: float = 0.0
     atr: float = 0.0          # エントリー時の ATR
     reason: str = ""
+    protect_id: str | None = None   # 口座側に置いた保護ストップ (逆指値) の注文 ID
 
     @property
     def is_long(self) -> bool:

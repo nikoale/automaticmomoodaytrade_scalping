@@ -20,8 +20,27 @@ class Broker(ABC):
         約定しなければ None、部分約定なら qty < 要求数量 の Fill を返す。
         """
 
-    def commission(self, price: float, qty: int, cfg: ExecutionConfig) -> float:
-        return cfg.commission_per_order + abs(price * qty) * cfg.commission_rate
+    def commission(self, price: float, qty: float, cfg: ExecutionConfig) -> float:
+        fee = cfg.commission_per_order + abs(price * qty) * cfg.commission_rate
+        return min(fee, cfg.commission_max) if cfg.commission_max else fee
+
+    # ---- 証券会社側の逆指値 (保護ストップ)。シミュレーションでは何もしない
+    def protect(self, code: str, qty: float, stop: float, is_long: bool = True) -> str | None:
+        """ボットが止まっても損切りされるよう、口座に逆指値注文を置く。注文 ID を返す。"""
+        return None
+
+    def update_protect(self, order_id: str, code: str, qty: float, stop: float,
+                       is_long: bool = True) -> str | None:
+        """逆指値の価格・数量を変更する。新しい注文 ID (変わらなければ同じ ID) を返す。"""
+        return order_id
+
+    def release_protect(self, order_id: str) -> tuple[float, float]:
+        """逆指値を取り消す。取消までに約定していた (数量, 平均価格) を返す。"""
+        return 0.0, 0.0
+
+    def buying_power(self) -> float | None:
+        """使える買付余力 (USD)。分からなければ None。"""
+        return None
 
     def close(self) -> None:
         pass

@@ -88,6 +88,8 @@ class LiveRunner:
         self.next_refresh_at: datetime | None = None
         self.last_refresh_at: datetime | None = None
         self.refresh_history: deque = deque(maxlen=20)
+        self._mismatch: dict[str, int] = {}
+        self.account: dict = {}
 
     # ------------------------------------------------------------------ util
     def now(self) -> datetime:
@@ -154,12 +156,83 @@ class LiveRunner:
             self.broker = PaperBroker(cfg, self.best_quote)
         else:
             from .moomoo_broker import MoomooBroker
-            self.broker = MoomooBroker(cfg, self.best_quote)
-            log.info("account: %s", self.broker.account_summary())
+            self.broker = MoomooBroker(cfg, self.best_quote, on_halt=lambda reason: self.risk.halt(reason))
+            self._log_account()
         self.risk = RiskManager(cfg.risk)
         self.sessions = TradingSessions.from_config(cfg.session)
         self.trade_logger = TradeLogger(cfg.log_dir, cfg.mode)
         self._add_engines(list(cfg.symbols))
+        if self._is_real_broker():
+            self._cleanup_stale_orders()
+
+    # ------------------------------------------------------------------ 口座 (simulate / live)
+    def _is_real_broker(self) -> bool:
+        from .moomoo_broker import MoomooBroker
+        return isinstance(self.broker, MoomooBroker)
+
+    def _log_account(self) -> None:
+        info = self.broker.account_summary()
+        self.account = {k: info.get(k) for k in ("total_assets", "cash", "power", "usd_net_cash_power",
+                                                 "market_val", "us_cash")}
+        log.info("口座 (%s): 総資産=%s 現金=%s 買付余力=%s", self.cfg.mode, self.account.get("total_assets"),
+                 self.account.get("cash"), self.account.get("usd_net_cash_power") or self.account.get("power"))
+
+    def _cleanup_stale_orders(self) -> None:
+        """前回ボットが残した注文を整理する。保有株がある銘柄の注文 (保護ストップ) は残す。"""
+        try:
+            orders = self.broker.open_bot_orders()
+            held = self.broker.positions()
+        except Exception as e:
+            log.warning("残っている注文の確認に失敗: %s", e)
+            return
+        for o in orders:
+            if held.get(o["code"]):
+                log.warning("%s: 前回の注文 %s (%s) が残っています。保有株があるので保護のため残します",
+                            o["code"], o["order_id"], o["remark"])
+            else:
+                log.info("%s: 前回の注文 %s (%s) を取り消します", o["code"], o["order_id"], o["remark"])
+                self.broker.cancel(o["order_id"])
+
+    def _reconcile(self) -> None:
+        """口座の実際の保有株数とボットの認識を照合する。2 回続けてズレたら対処する。"""
+        try:
+            actual = self.broker.positions(refresh=True)
+        except Exception as e:
+            log.warning("保有株の照合に失敗: %s", e)
+            return
+        now = self.now()
+        for code, eng in list(self.engines.items()):
+            if code in self._blocked:
+                continue
+            bot = eng.position.qty if eng.position else 0.0
+            real = actual.get(code, 0.0)
+            if abs(real - bot) < 1e-9:
+                self._mismatch.pop(code, None)
+                continue
+            self._mismatch[code] = self._mismatch.get(code, 0) + 1
+            if self._mismatch[code] < 2:
+                continue        # 1 回だけのズレは口座への反映待ちの可能性
+            self._mismatch.pop(code, None)
+            same_side = bot * real >= 0
+            if eng.position is not None and same_side and abs(real) < abs(bot):
+                # 口座側で減っている = 保護ストップが約定 / アプリから手動で決済
+                closed = abs(bot) - abs(real)
+                price, reason = eng.position.stop, "external_close"
+                pid = eng.position.protect_id
+                if pid is not None:
+                    dealt, avg, status = self.broker.order_fill(pid)
+                    if dealt > 0:
+                        price, reason = (avg or price), "protective_stop"
+                    if real == 0:
+                        eng.position.protect_id = None
+                log.warning("%s: 口座で %g 株が決済されていました (%s)。ボットの記録を合わせます", code, closed, reason)
+                eng.on_external_close(closed, price, now, reason)
+            else:
+                self._blocked.add(code)
+                self._apply_enabled()
+                msg = f"{code}: 口座の保有株数 ({real:g}) とボットの認識 ({bot:g}) が一致しません"
+                log.error(msg + "。この銘柄の売買を止めました。moomoo アプリで確認してください")
+                self.risk.halt(msg)
 
     def _add_engines(self, codes: list[str]) -> None:
         cfg = self.cfg
@@ -440,7 +513,7 @@ class LiveRunner:
             "phase": self.phase, "error": self.error, "mode": self.cfg.mode, "market": self.cfg.market,
             "strategy": self.cfg.strategy.name, "auto": self.cfg.auto_symbols.enabled,
             "chosen": [c for c in self.engines if c not in self._retiring], "retiring": sorted(self._retiring),
-            "paused": self.paused,
+            "paused": self.paused, "account": self.account,
             "next_refresh": str(self.next_refresh_at)[:19] if self.next_refresh_at else None,
             "last_refresh": str(self.last_refresh_at)[:19] if self.last_refresh_at else None,
             "refresh_history": list(self.refresh_history)[-5:], "started_at": str(self.started_at) if self.started_at else None,
@@ -479,15 +552,21 @@ class LiveRunner:
                 if cfg.auto_symbols.refresh_minutes:
                     self._schedule_refresh(cfg.auto_symbols.refresh_minutes)
             last_status = 0.0
+            last_reconcile = _time.monotonic()
             while not self._stop:
                 self._drain(timeout=1.0)
                 now = self.now()
                 for eng in list(self.engines.values()):
                     eng.on_clock(now)
                 self._maybe_refresh(now)
+                if self._is_real_broker() and _time.monotonic() - last_reconcile > cfg.execution.reconcile_seconds:
+                    last_reconcile = _time.monotonic()
+                    self._reconcile()
                 if _time.monotonic() - last_status > 60:
                     last_status = _time.monotonic()
                     self._log_status()
+                    if self._is_real_broker():
+                        self._log_account()
         except BaseException as e:   # SystemExit も GUI に表示したいので捕まえる
             self.phase = "error"
             self.error = str(e)

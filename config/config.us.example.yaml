@@ -2,7 +2,7 @@
 # mode: paper (練習) / simulate (moomoo 模擬口座) / live (実口座。--confirm-live が必要)
 mode: paper
 symbols: [US.AAPL, US.NVDA]
-bar_minutes: 1
+bar_minutes: 5      # 足の長さ (1/3/5/15 分)。手数料 0.132% だと 1 分足は値幅が小さく手数料負けしやすい
 moomoo:
   security_firm: FUTUJP     # moomoo証券(日本) の口座
   trd_market: US
