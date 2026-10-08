@@ -544,8 +544,12 @@ class Executor:
             reason = strategy.exit_reason(pos, held_days, cl, edays, index_ok, cfg)
             if reason:
                 exits.append(sym)
+                est = risk.sell_net(p["shares"], cl * (1 - cfg.fees["slippage_pct"] / 100.0), cfg)
                 self.st["orders"].append({"kind": "exit", "symbol": sym, "qty": p["shares"], "reason": reason,
-                                          "for_date": nxt.isoformat(), "remark": remark(nxt, sym, "X"), "order_id": None})
+                                          "for_date": nxt.isoformat(), "remark": remark(nxt, sym, "X"), "order_id": None,
+                                          # 画面表示用の目安 (成行なので実際の値段は翌寄り付きで決まる)
+                                          "ref_price": round(cl, 4), "est_amount": round(est, 2),
+                                          "est_pnl": round(est - p["entry_cost"], 2)})
                 log.info("[手仕舞い判定] %s → 翌寄り付き (%s) で売り (%s)", sym, nxt, reason)
         self.save()
 
@@ -587,10 +591,16 @@ class Executor:
             if cal is not None and cal.get(sym):
                 fut = [x for x in cal[sym] if x > d]
                 ne = fut[0].isoformat() if fut else ne
-            cash -= risk.buy_total(n, cl * (1 + slip), cfg)
+            est = risk.buy_total(n, cl * (1 + slip), cfg)
+            cash -= est
+            stop_est = strategy.initial_stop(cl * (1 + slip), a, cfg)
             self.st["orders"].append({"kind": "entry", "symbol": sym, "qty": n, "atr": a, "rank": it["rank"],
                                       "next_earnings": ne, "for_date": nxt.isoformat(),
-                                      "remark": remark(nxt, sym, "B"), "order_id": None})
+                                      "remark": remark(nxt, sym, "B"), "order_id": None,
+                                      # 画面表示用の目安 (成行なので実際の値段は翌寄り付きで決まる)
+                                      "name": it.get("name"), "ref_price": round(cl, 4), "est_amount": round(est, 2),
+                                      "est_stop": round(stop_est, 2),
+                                      "est_risk": round(n * (cl * (1 + slip) - stop_est), 2)})
             log.info("[エントリー判定] %s (順位 %d) 終値 %.2f > 20日高値 %.2f・出来高 %.0f → 翌寄り付き (%s) に %d 株",
                      sym, it["rank"], cl, v("high_prev", sym), v("volume", sym), nxt, n)
             free -= 1

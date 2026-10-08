@@ -402,3 +402,12 @@ def test_reset_reports_filled_shares(env):
     r = ex.reset()
     assert r["left_shares"] and r["left_shares"][0]["symbol"] == "AAA"
     assert not br.active("STOP")
+
+
+def test_orders_carry_price_estimates_for_display(env):
+    br = FakeBroker()
+    ex, _ = make(env, br)
+    ex.run_close()
+    o = ex.st["orders"][0]
+    assert o["ref_price"] > 0 and o["est_amount"] == pytest.approx(o["qty"] * o["ref_price"] * 1.001, rel=0.01)
+    assert o["est_stop"] < o["ref_price"] and o["est_risk"] > 0

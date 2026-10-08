@@ -619,12 +619,21 @@ function posRows(pos, full) {
       ${full ? `<td>${esc(p.entry_date)}</td><td>${esc(p.next_earnings || "—")}</td>` : ""}</tr>`;
   }).join("");
 }
-function orderRows(od, full) {
-  if (!od.length) return empty("予定の注文はありません");
-  return `<tr><th>銘柄</th><th>売買</th><th>株数</th><th>執行日</th>${full ? "<th>理由</th>" : ""}<th>状態</th></tr>` + od.map((o) => `<tr><td>${sym(o.symbol)}</td>
-    <td><span class="tag ${o.kind === "entry" ? "acc" : "warn"}">${KIND[o.kind] || o.kind}</span></td><td>${fmt(o.qty, 0)}</td><td>${esc(o.for_date)}</td>
-    ${full ? `<td>${esc(REASONS[o.reason] || o.reason || (o.kind === "entry" ? "20日高値ブレイク" : ""))}</td>` : ""}
-    <td>${o.order_id ? '<span class="tag up">発注済み</span>' : '<span class="tag">寄り付き後に出す</span>'}</td></tr>`).join("");
+function orderRows(od, full, fx = 150) {
+  if (!od.length) return empty("予定の注文はありません", "<br><span class='small'>毎朝の「引け後の処理」で、条件を満たした銘柄の注文がここに出ます</span>");
+  return `<tr><th>銘柄</th><th>売買</th><th>株数</th><th title="前日の終値（成行なので実際の値段は寄り付きで決まります）">値段の目安</th><th>金額の目安</th><th>損切り / 損益の目安</th>
+    <th>執行日</th>${full ? "<th>理由</th>" : ""}<th>状態</th></tr>` + od.map((o) => {
+    const has = o.ref_price != null;
+    const amt = o.est_amount != null ? `${usd(o.est_amount)}<br><span class="muted small">${yen(o.est_amount * fx)}</span>` : "—";
+    const third = o.kind === "entry"
+      ? (o.est_stop != null ? `${usd(o.est_stop)}<br><span class="muted small">最大損失 ${usd(o.est_risk)}</span>` : "—")
+      : (o.est_pnl != null ? `<span class="${cls(o.est_pnl)}"><b>${sgn(o.est_pnl, usd)}</b></span><br><span class="small ${cls(o.est_pnl)}">${sgn(o.est_pnl * fx, yen)}</span>` : "—");
+    return `<tr><td>${sym(o.symbol, o.name)}</td>
+    <td><span class="tag ${o.kind === "entry" ? "acc" : "warn"}">${KIND[o.kind] || o.kind}</span><br><span class="muted small">成行・寄り付き</span></td>
+    <td>${fmt(o.qty, 0)}</td><td>${has ? usd(o.ref_price) + '<br><span class="muted small">前日の終値</span>' : "—"}</td><td>${amt}</td><td>${third}</td>
+    <td>${esc(o.for_date)}</td>${full ? `<td>${esc(REASONS[o.reason] || o.reason || (o.kind === "entry" ? "20日高値ブレイク" : ""))}</td>` : ""}
+    <td>${o.order_id ? '<span class="tag up">発注済み</span>' : '<span class="tag">寄り付き後に出す</span>'}</td></tr>`;
+  }).join("");
 }
 
 function renderHome(st) {
@@ -654,7 +663,7 @@ function renderHome(st) {
   ].map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v num">${v}</div></div>`).join("");
   $("homePos").innerHTML = posRows(pos, false);
   $("homePosNote").textContent = pos.length ? `${pos.length} 銘柄` : "";
-  $("homeOrders").innerHTML = orderRows(ords, false);
+  $("homeOrders").innerHTML = orderRows(ords, false, fx);
   const c = st.check, wl = st.watchlist, capb = t.capability, auto = st.auto && st.auto.on;
   const steps = [
     [!!(c && c.qot_logined && c.trd_logined), "OpenD に接続", c ? `確認済み（${c.time}）` : "右上の「OpenD」を押す", "settings"],
@@ -687,7 +696,7 @@ function renderTrade(t) {
     ["注文の出し方", t.order_timing === "reserve" ? "引け後の処理で予約（だめなら寄り付き後）" : "寄り付き後の処理で出す"],
     ["前回の処理", `引け後 ${esc(t.last_close || "—")}・寄り付き後 ${esc(t.last_open || "—")}`]]);
   $("tradePos").innerHTML = posRows(Object.values(t.positions || {}), true);
-  $("tradeOrders").innerHTML = orderRows(t.orders || [], true);
+  $("tradeOrders").innerHTML = orderRows(t.orders || [], true, fx);
   const tr = (t.trades || []).slice().reverse();
   $("tradeTrades").innerHTML = tr.length ? `<tr><th>銘柄</th><th>買い</th><th>売り</th><th>株数</th><th>損益</th><th>理由</th></tr>` +
     tr.map((x) => `<tr><td>${sym(x.symbol)}</td><td>${esc(x.entry_date)}<br><span class="muted">${usd(x.entry_price)}</span></td><td>${esc(x.exit_date)}<br><span class="muted">${usd(x.exit_price)}</span></td>
