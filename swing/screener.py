@@ -64,7 +64,8 @@ def _f(x) -> float | None:
 
 def screen_at(ind: dict, i: int, cfg, market_cap: dict[str, float] | None = None,
               earnings: dict[str, list[date]] | None = None, shares: dict[str, float] | None = None,
-              earnings_calendar: dict[str, list[date]] | None = None) -> ScreenResult:
+              earnings_calendar: dict[str, list[date]] | None = None,
+              names: dict[str, str] | None = None) -> ScreenResult:
     """パネル ind の i 行目 (= その日の引け) の時点で監視リストを作る。
 
     market_cap: 銘柄 → 時価総額 (ライブ用: 現在値)。None で shares × 終値 の近似を使う (バックテスト)
@@ -127,7 +128,7 @@ def screen_at(ind: dict, i: int, cfg, market_cap: dict[str, float] | None = None
     df = df.sort_values("vol_ratio", ascending=False).head(sc["top_n"])
     for rank, (s, r) in enumerate(df.iterrows(), 1):
         res.items.append({
-            "rank": rank, "symbol": s, "close": round(float(r["close"]), 4),
+            "rank": rank, "symbol": s, "name": (names or {}).get(s), "close": round(float(r["close"]), 4),
             "high_20d": round(float(r["high_n"]), 4), "atr_14": round(float(r["atr"]), 4),
             "next_earnings": nexts[s].isoformat() if nexts.get(s) else None,
             "earnings_unknown": s in res.unknown_earnings,
@@ -135,6 +136,15 @@ def screen_at(ind: dict, i: int, cfg, market_cap: dict[str, float] | None = None
             "market_cap": (market_cap or {}).get(s),
         })
     return res
+
+
+def clean_name(name: str) -> str:
+    """Nasdaq Trader の名前から「- Common Stock」などの説明を取る (例: "Apple Inc. - Common Stock" → "Apple Inc.")。"""
+    n = str(name)
+    for sep in (" - ", " Common Stock", " Ordinary Shares", " Class A", " Class B", " Class C"):
+        if sep in n:
+            n = n.split(sep)[0]
+    return n.strip().rstrip(",")
 
 
 def write_watchlist(res: ScreenResult, out_dir: Path, run_date: date) -> Path:
@@ -159,8 +169,8 @@ def log_result(res: ScreenResult) -> None:
     if res.unknown_earnings:
         log.warning("[screener %s] 決算日が取得できない銘柄 (要確認): %s", res.date, ", ".join(res.unknown_earnings))
     for it in res.items:
-        log.info("[screener %s] #%d %s 終値=%.2f 20日高値=%.2f ATR=%.2f 出来高比=%.2f 6M順位=%.2f 決算=%s",
-                 res.date, it["rank"], it["symbol"], it["close"], it["high_20d"], it["atr_14"], it["volume_ratio"],
+        log.info("[screener %s] #%d %s (%s) 終値=%.2f 20日高値=%.2f ATR=%.2f 出来高比=%.2f 6M順位=%.2f 決算=%s",
+                 res.date, it["rank"], it["symbol"], it.get("name") or "", it["close"], it["high_20d"], it["atr_14"], it["volume_ratio"],
                  it["momentum_pct_rank"], it["next_earnings"])
 
 
@@ -238,7 +248,8 @@ def run_weekly_moomoo(cfg, now_jst: datetime | None = None, client=None) -> Path
     if i < 0 or idx[i].date() != last:
         log.warning("最新の日足が %s ではありません (取得できた最終日: %s)", last, idx[i].date() if i >= 0 else None)
     mcap = {c["symbol"]: c["market_cap"] for c in picked}
-    res = screen_at(ind, i, cfg, market_cap=mcap, earnings_calendar=cal)
+    res = screen_at(ind, i, cfg, market_cap=mcap, earnings_calendar=cal,
+                    names={c["symbol"]: names.get(c["code"]) or c.get("name") for c in picked})
     res.counts = {"moomoo 条件選股": len(server), "普通株 (名前で除外後)": len(common), "日足で確認": len(bars),
                   **{f"確認: {k}": v for k, v in res.counts.items() if k != "データあり"}}
     res.note = (res.note + " " if res.note else "") + \
@@ -274,7 +285,8 @@ def run_weekly_free(cfg, now_jst: datetime | None = None, update: bool = True) -
     meta = data.load_meta(cfg)
     mcap = {s: _f(meta["market_cap"].get(s)) for s in cand if s in meta.index}
     earn = {s: data.read_earnings(cfg, s) for s in cand}
-    res = screen_at(ind, i, cfg, market_cap=mcap, earnings=earn)
+    names = {s: clean_name(n) for s, n in zip(uni["symbol"], uni["name"])}
+    res = screen_at(ind, i, cfg, market_cap=mcap, earnings=earn, names=names)
     log_result(res)
     path = write_watchlist(res, cfg.path("watchlists"), now_jst.date())
     log.info("監視リストを保存: %s (%d 銘柄)", path, len(res.items))

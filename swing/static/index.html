@@ -62,7 +62,8 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
 .empty { color: var(--muted); padding: 24px 0; text-align: center; }
 .status-table td { text-align: left; white-space: normal; vertical-align: top; }
 .status-table td:first-child { white-space: nowrap; }
-#watchTable td:nth-child(2), #watchTable th:nth-child(2) { text-align: left; }
+#watchTable td:nth-child(2), #watchTable th:nth-child(2), #watchTable td:nth-child(3), #watchTable th:nth-child(3) { text-align: left; }
+#watchTable td.name { white-space: normal; min-width: 140px; max-width: 260px; }
 .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
 .kpi .k { font-size: 12px; color: var(--muted); } .kpi .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -328,8 +329,8 @@ function renderWatch(wl) {
   $("watchNote").innerHTML = notes;
   if (!wl.items.length) { t.innerHTML = `<tr><td class="empty">今週の監視銘柄はありません（新規エントリーなし）。</td></tr>`; return; }
   const mcap = (v) => v === null || v === undefined ? "—" : v >= 1e9 ? fmt(v / 1e9, 1) + "B" : fmt(v / 1e6, 0) + "M";
-  t.innerHTML = `<tr><th>順位</th><th>銘柄</th><th>終値</th><th>20日高値</th><th>高値まで</th><th>ATR(14)</th><th>出来高の伸び</th><th title="moomoo の MARKET_VAL (ドルのはず)">時価総額</th><th>次回決算</th></tr>` +
-    wl.items.map((x) => `<tr><td>${x.rank}</td><td><b>${esc(x.symbol)}</b></td><td>${fmt(x.close, 2)}</td><td>${fmt(x.high_20d, 2)}</td>
+  t.innerHTML = `<tr><th>順位</th><th>銘柄</th><th>会社名</th><th>終値</th><th>20日高値</th><th>高値まで</th><th>ATR(14)</th><th>出来高の伸び</th><th title="moomoo の MARKET_VAL (ドルのはず)">時価総額</th><th>次回決算</th></tr>` +
+    wl.items.map((x) => `<tr><td>${x.rank}</td><td><b>${esc(x.symbol)}</b></td><td class="name">${esc(x.name || "—")}</td><td>${fmt(x.close, 2)}</td><td>${fmt(x.high_20d, 2)}</td>
       <td>${fmt((x.high_20d / x.close - 1) * 100, 1)}%</td><td>${fmt(x.atr_14, 2)}</td><td>${fmt(x.volume_ratio, 2)}倍</td><td>${mcap(x.market_cap)}</td><td>${esc(x.next_earnings || "—")}</td></tr>`).join("");
 }
 

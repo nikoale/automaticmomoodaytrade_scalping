@@ -138,6 +138,7 @@ def test_moomoo_weekly_screener_end_to_end(setup):
     syms = [x["symbol"] for x in wl["items"]]
     # ADR・SPAC は名前で、ETF は普通株一覧にないので除外。FAKE は日足で確かめ直すと下降トレンド。EARN は決算 4 営業日後
     assert syms == ["GOOD1", "GOOD2"]                       # 出来高の伸び (自前計算) の順
+    assert [x["name"] for x in wl["items"]] == ["Good One", "Good Two"]   # 会社名 (moomoo の銘柄一覧)
     assert wl["items"][1]["next_earnings"] is None and wl["items"][0]["atr_14"] > 0
     assert wl["counts"]["moomoo 条件選股"] == 7 and wl["counts"]["普通株 (名前で除外後)"] == 4
     assert "35.00%" in wl["note"]
@@ -167,3 +168,10 @@ def test_quota_and_name_filter(setup):
     assert data.name_excluded("Foo Acquisition Corp - Class A", c)
     assert data.name_excluded("Some Co ADR", c)
     assert not data.name_excluded("Apple Inc.", c)
+
+
+def test_clean_name():
+    from swing.screener import clean_name
+    assert clean_name("Apple Inc. - Common Stock") == "Apple Inc."
+    assert clean_name("Berkshire Hathaway Inc. Class B Common Stock") == "Berkshire Hathaway Inc."
+    assert clean_name("Agilent Technologies, Inc. Common Stock") == "Agilent Technologies, Inc."
