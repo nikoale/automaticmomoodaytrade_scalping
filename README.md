@@ -45,7 +45,7 @@
 | ファイル | 役割 |
 |---|---|
 | `config.yaml` | すべての設定値（コードにハードコードしない） |
-| `swing/data.py` | 銘柄リスト・日足・時価総額・決算日の取得とキャッシュ (`data/`) |
+| `swing/data.py` | 銘柄リスト・日足・時価総額・決算日の取得とキャッシュ (`~/moomoo-swing/data/`) |
 | `swing/indicators.py` | 移動平均・ATR・20 日高値など（日付 × 銘柄のパネルで一括計算） |
 | `swing/screener.py` | 週次スクリーナー（ライブとバックテストで同じ関数 `screen_at` を使う） |
 | `swing/strategy.py` | エントリー・損切り・トレーリング・手仕舞いのルール（純粋関数） |
@@ -72,7 +72,7 @@ python -m pytest -q          # テスト (ネットワーク不要)
 
 ## データ
 
-無料のデータ源を使います（すべて `data/` に CSV でキャッシュし、2 回目以降は差分だけ取得）。
+無料のデータ源を使います（すべて `~/moomoo-swing/data/` に CSV でキャッシュし、2 回目以降は差分だけ取得。プログラムのフォルダの外なので、新しい版をダウンロードし直しても消えない）。
 
 | データ | 取得元（既定） | 代替 | 入手方法 |
 |---|---|---|---|
@@ -91,6 +91,8 @@ python -m swing fetch prices         # 以降: 日足の差分更新
 
 Yahoo Finance は非公式 API なので、仕様変更や一時的な取得制限があり得ます（失敗した銘柄はログに出して続行）。
 
+Mac の python.org 版 Python で起きる `CERTIFICATE_VERIFY_FAILED`（証明書エラー）は、`certifi` の証明書一覧を使うことで回避しています（検証は省略していません）。
+
 ## 週次スクリーナー（フェーズ 1）
 
 毎週選び直します。データ元は `config.yaml` の `data.screener_source` で選べます。
@@ -103,7 +105,7 @@ Yahoo Finance は非公式 API なので、仕様変更や一時的な取得制�
 
 ```bash
 python -m swing quota                # moomoo の過去 K 線の取得枠 (使用済み / 残り) を確認
-python -m swing screen               # → data/watchlists/watchlist_YYYYMMDD.json
+python -m swing screen               # → ~/moomoo-swing/data/watchlists/watchlist_YYYYMMDD.json
 python -m swing screen --source free # Yahoo で全銘柄を計算する方式
 ```
 
@@ -113,7 +115,7 @@ moomoo 方式の流れ:
 3. 株価 10〜100 ドル・時価総額 3 億ドル以上・20 日平均出来高 50 万株以上・騰落率が境目以上・終値 > 50 日線 > 200 日線 をサーバー側で判定
 4. 普通株一覧（`get_stock_basicinfo`）にない銘柄と、名前が SPAC・ADR などの銘柄を除外し、出来高の伸びの大きい順に 40 銘柄
 5. その 40 銘柄の日足（約 1 年分）を取り、バックテストと同じ `screen_at()` で確かめ直す。決算カレンダー（`get_earnings_calendar`）で 15 営業日以内に決算がある銘柄を除外 → 上位 20
-6. 取った日足は `data/prices/` に保存（日次処理で使う）
+6. 取った日足は `~/moomoo-swing/data/prices/` に保存（日次処理で使う）
 
 - 直近の米国取引日（日本時間 土曜の朝なら金曜）の引けまでのデータで判定
 - 母集団: 普通株 / 株価 10〜100 ドル / 20 日平均出来高 50 万株以上 / 時価総額 3 億ドル以上 / 次回決算が 15 営業日以内なら除外
@@ -125,7 +127,7 @@ moomoo 方式の流れ:
 ## バックテスト（フェーズ 2）
 
 ```bash
-python -m swing backtest             # → reports/<日時>/report.md（図・CSV 付き）
+python -m swing backtest             # → ~/moomoo-swing/reports/<日時>/report.md（図・CSV 付き）
 python -m swing backtest --synthetic # 擬似データでレポート作成の流れだけ確認（成績に意味はない）
 ```
 
@@ -192,5 +194,5 @@ WantedBy=timers.target
 
 ## ログ
 
-`logs/YYYYMMDD_<コマンド>.log` に日付別で出力。スクリーナーは各段階の残り銘柄数・決算日が取れない銘柄（要確認）・
+`~/moomoo-swing/logs/YYYYMMDD_<コマンド>.log` に日付別で出力。スクリーナーは各段階の残り銘柄数・決算日が取れない銘柄（要確認）・
 選ばれた銘柄の数値を、バックテストは判断ログ（候補・エントリー・損切り更新・手仕舞い・見送り）を CSV にも出力します。

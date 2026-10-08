@@ -229,7 +229,8 @@ class App:
                 lines = fh.read().strip().splitlines()
             last = lines[-1].split(",")[0] if len(lines) > 1 else None
         earn = cfg.path("earnings")
-        return {"universe": max(sum(1 for _ in open(uni, encoding="utf-8")) - 1, 0) if uni.exists() else 0,
+        return {"dir": str(cfg.path()).replace(str(Path.home()), "~"),
+                "universe": max(sum(1 for _ in open(uni, encoding="utf-8")) - 1, 0) if uni.exists() else 0,
                 "prices": len(prices), "earnings": len(list(earn.glob("*.csv"))) if earn.exists() else 0,
                 "last_date": last}
 
@@ -244,8 +245,7 @@ class App:
 
     def reports_dir(self) -> Path:
         cfg = self.cfg()
-        p = Path(cfg.backtest["report_dir"])
-        return p if p.is_absolute() else config_mod.ROOT / p
+        return cfg.report_dir()
 
     def latest_report(self) -> dict | None:
         d = self.reports_dir()

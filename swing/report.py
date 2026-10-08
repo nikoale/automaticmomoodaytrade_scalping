@@ -63,9 +63,7 @@ def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    out = Path(cfg.backtest["report_dir"])
-    out = out if out.is_absolute() else Path(__file__).resolve().parents[1] / out
-    out = out / datetime.now().strftime("%Y%m%d_%H%M%S")
+    out = cfg.report_dir() / datetime.now().strftime("%Y%m%d_%H%M%S")
     out.mkdir(parents=True, exist_ok=True)
     fx = cfg.account["fx_rate_jpy_per_usd"]
     st = {k: backtest.stats(r) for k, r in runs.items()}

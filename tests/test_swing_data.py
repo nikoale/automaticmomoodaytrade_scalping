@@ -91,3 +91,28 @@ def test_fetch_earnings_yahoo_parses_tz_index(monkeypatch):
     tk = types.SimpleNamespace(get_earnings_dates=lambda limit: pd.DataFrame({"EPS Estimate": [1, 2]}, index=idx))
     monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=lambda s: tk))
     assert data.fetch_earnings_yahoo("AAA") == [date(2024, 4, 25), date(2024, 7, 25)]
+
+
+def test_https_uses_certifi_bundle(monkeypatch):
+    import certifi
+    seen = {}
+
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def read(self):
+            return b"ok"
+
+    def fake_urlopen(req, timeout=None, context=None):
+        seen["ctx"] = context
+        return Resp()
+    monkeypatch.setattr(data.urllib.request, "urlopen", fake_urlopen)
+    assert data._get("https://example.com/x") == b"ok"
+    ctx = seen["ctx"]
+    assert ctx is not None and ctx.verify_mode.name == "CERT_REQUIRED"      # 検証は省略しない
+    assert ctx.cert_store_stats()["x509_ca"] > 0
+    assert certifi.where()

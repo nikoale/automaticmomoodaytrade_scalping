@@ -18,7 +18,9 @@ fees:
   slippage_pct: 0.1              # 片道スリッページ (寄り付き成行なので厳しめ)
 
 data:
-  dir: data                      # 価格・決算日・銘柄情報のキャッシュ置き場
+  # 価格・決算日・監視リスト・画面の設定の置き場。プログラムのフォルダの外 (ホーム) に置くので、
+  # 新しい版を ZIP でダウンロードし直しても、取得済みのデータ (初回は数十分かかる) が消えない
+  dir: ~/moomoo-swing/data
   price_source: yahoo            # yahoo (yfinance) / stooq
   history_start: "2010-01-01"    # 取得開始日 (10 年以上)
   benchmark: SPY                 # 市場フィルター用の指数 ETF
@@ -86,7 +88,7 @@ backtest:
     "2020年": ["2020-01-01", "2020-12-31"]
     "2022年": ["2022-01-01", "2022-12-31"]
   market_cap_proxy: current_shares   # 過去の時価総額 = 現在の発行済株数 × その日の株価 (近似) / none = フィルター無効
-  report_dir: reports
+  report_dir: ~/moomoo-swing/reports
 
 moomoo_data:                     # data.screener_source = moomoo のときの設定 (※実機では要確認)
   page_size: 200                 # get_stock_filter の 1 ページの件数 (SDK の上限 200)
@@ -110,4 +112,4 @@ schedule:                        # フェーズ 4 (runner) で使用
   weekly_screen_time: "09:00"
 
 logging:
-  dir: logs
+  dir: ~/moomoo-swing/logs

@@ -19,7 +19,7 @@ from . import config as config_mod
 
 
 def setup_logging(cfg, name: str, level: str = "INFO") -> None:
-    log_dir = config_mod.ROOT / cfg["logging"]["dir"] if "logging" in cfg else config_mod.ROOT / "logs"
+    log_dir = cfg.log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         level=getattr(logging, level),

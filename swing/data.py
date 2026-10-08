@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import io
 import logging
+import ssl
 import time
 import urllib.request
 from datetime import date, datetime, timedelta
@@ -30,9 +31,19 @@ UA = "Mozilla/5.0 (swing-bot research)"
 PRICE_COLS = ["open", "high", "low", "close", "volume"]
 
 
+def _ssl_context() -> ssl.SSLContext:
+    """HTTPS の証明書。Mac の python.org 版 Python は OS の証明書を使わないため
+    (CERTIFICATE_VERIFY_FAILED になる)、certifi の証明書一覧があればそれを使う。検証は省略しない。"""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        return ssl.create_default_context()
+
+
 def _get(url: str, timeout: int = 30) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()) as r:
         return r.read()
 
 
@@ -92,7 +103,8 @@ def update_universe(cfg) -> pd.DataFrame:
 def load_universe(cfg) -> pd.DataFrame:
     path = cfg.path("universe.csv")
     if not path.exists():
-        raise FileNotFoundError(f"{path} がありません。先に `python -m swing fetch universe` を実行してください")
+        raise FileNotFoundError("過去データがまだありません。先に画面の「データ」タブで「過去データを取得・更新する」を押してください"
+                                "（コマンドの場合は python -m swing fetch all）")
     return pd.read_csv(path, dtype=str)
 
 
@@ -307,7 +319,8 @@ def load_panel(cfg, symbols: list[str], start: str | None = None, prune: bool = 
     """
     bench = read_prices(cfg, cfg.data.benchmark)
     if bench is None:
-        raise FileNotFoundError(f"{cfg.data.benchmark} の日足がありません (fetch prices を実行)")
+        raise FileNotFoundError(f"{cfg.data.benchmark} の日足がありません。画面の「データ」タブで「過去データを取得・更新する」を押してください"
+                                "（コマンドの場合は python -m swing fetch all）")
     idx = bench.index[bench.index >= pd.Timestamp(start)] if start else bench.index
     sc = cfg.screener
     # 1 回目: 終値と出来高だけ読む (全銘柄での順位付けと刈り込み用。メモリ節約のため float32)

@@ -38,9 +38,20 @@ class Config(dict):
         return Config(v) if isinstance(v, dict) and not isinstance(v, Config) else v
 
     def path(self, *parts: str) -> Path:
-        p = Path(self["data"]["dir"])
-        p = p if p.is_absolute() else ROOT / p
-        return p.joinpath(*parts)
+        """データ置き場 (data.dir) の下のパス。"""
+        return resolve(self["data"]["dir"]).joinpath(*parts)
+
+    def report_dir(self) -> Path:
+        return resolve(self["backtest"]["report_dir"])
+
+    def log_dir(self) -> Path:
+        return resolve(self["logging"]["dir"] if "logging" in self else "logs")
+
+
+def resolve(p: str | Path) -> Path:
+    """~ (ホーム) を展開し、相対パスはプログラムのフォルダ基準にする。"""
+    p = Path(p).expanduser()
+    return p if p.is_absolute() else ROOT / p
 
 
 def load(path: str | Path | None = None, overrides: dict | None = None) -> Config:

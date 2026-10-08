@@ -7,3 +7,4 @@ yfinance>=0.2.40         # 無料の日足・時価総額・決算日 (Yahoo Fin
 moomoo-api>=9.0          # moomoo OpenD (フェーズ 3 以降の発注・日次データ / 決算カレンダー)
 pytest>=7.0
 keyring>=24.0          # 取引パスワードを Mac のキーチェーンに保存
+certifi>=2023.0        # HTTPS の証明書 (Mac の python.org 版 Python 用)

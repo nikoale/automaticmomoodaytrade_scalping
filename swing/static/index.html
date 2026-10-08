@@ -210,6 +210,7 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
         <div id="dataStatus" class="kv"></div>
         <button id="btnFetch" class="wide primary">過去データを取得・更新する</button>
         <div class="hint">Yahoo Finance から約15年分の日足・時価総額・決算日を取得します。初回は数十分かかります（2回目以降は差分だけ）。
+          データはプログラムのフォルダの外（ホームの moomoo-swing フォルダ）に保存するので、新しい版をダウンロードし直しても消えません。
           途中で画面を閉じないでください。Mac がスリープしないよう電源につないでおくと安心です。</div>
       </div>
     </section>
@@ -265,7 +266,13 @@ $("btnAccount").onclick = () => job("account");
 $("account_env").onchange = async () => { await saveSettings(); };
 $("btnScreen").onclick = () => job("screen");
 $("btnFetch").onclick = () => job("fetch");
-$("btnBacktest").onclick = () => job("backtest");
+$("btnBacktest").onclick = () => {
+  if (last && last.data && !last.data.universe) {
+    banner("過去データがまだありません。先に「データ」タブで「過去データを取得・更新する」を押してください（初回は数十分）。", "err");
+    document.querySelector('[data-tab=data]').click(); return;
+  }
+  job("backtest");
+};
 $("btnBacktestSyn").onclick = () => job("backtest_synthetic");
 const SETTINGS = ["capital_jpy", "fx_rate_jpy_per_usd", "capital_source", "screener_source", "host", "port", "account_env"];
 async function saveSettings() {
@@ -398,7 +405,7 @@ function renderPassword(p) {
 function renderData(d) {
   $("dataStatus").innerHTML = "";
   const rows = [["銘柄リスト", d.universe ? `${fmt(d.universe, 0)} 銘柄` : "未取得"], ["日足", d.prices ? `${fmt(d.prices, 0)} 銘柄（最終日 ${d.last_date || "—"}）` : "未取得"],
-    ["決算日", d.earnings ? `${fmt(d.earnings, 0)} 銘柄` : "未取得"]];
+    ["決算日", d.earnings ? `${fmt(d.earnings, 0)} 銘柄` : "未取得"], ["保存場所", d.dir || "—"]];
   for (const [k, v] of rows) { const a = document.createElement("div"); a.textContent = k; const b = document.createElement("div"); b.textContent = v; $("dataStatus").append(a, b); }
 }
 
