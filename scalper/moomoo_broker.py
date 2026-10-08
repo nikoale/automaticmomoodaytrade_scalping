@@ -56,6 +56,11 @@ class MoomooBroker(Broker):
         self._order_kw = {"trd_env": self.env, "acc_id": cfg.moomoo.acc_id}
         if cfg.market == "JP":
             self._order_kw["jp_acc_type"] = getattr(mm.SubAccType, cfg.moomoo.jp_acc_type)
+        us_session = cfg.session.us_session.upper()
+        if cfg.market == "US" and us_session != "RTH":
+            # 時間外取引の注文。※実口座・模擬口座での挙動は未検証。まず paper で確認を
+            self._order_kw["session"] = getattr(mm.Session, us_session)
+            self._order_kw["fill_outside_rth"] = us_session in ("ETH", "ALL")
         log.info("MoomooBroker ready: env=%s market=%s firm=%s", self.env, cfg.market, cfg.moomoo.security_firm)
 
     # ------------------------------------------------------------------ queries

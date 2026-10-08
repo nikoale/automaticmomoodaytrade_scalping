@@ -66,4 +66,56 @@ def build(fill_mode="full"):
             pass
 
     m.OpenSecTradeContext = Ctx
+
+    m.Session = _E(RTH="RTH", ETH="ETH", ALL="ALL", OVERNIGHT="OVERNIGHT")
+    m.KLType = _E(K_1M="K_1M", K_3M="K_3M", K_5M="K_5M", K_15M="K_15M")
+    m.SubType = _E(K_1M="K_1M", K_3M="K_3M", K_5M="K_5M", K_15M="K_15M", QUOTE="QUOTE", ORDER_BOOK="ORDER_BOOK")
+    m.AuType = _E(QFQ="QFQ")
+
+    class _Handler:
+        def on_recv_rsp(self, rsp):
+            return 0, rsp
+
+    m.CurKlineHandlerBase = m.StockQuoteHandlerBase = m.OrderBookHandlerBase = _Handler
+
+    def _klines(n, start="2026-10-08 00:00:00"):
+        t0 = pd.Timestamp(start)
+        return pd.DataFrame([{"code": "US.NVDA", "time_key": str(t0 + pd.Timedelta(minutes=i)), "open": 100.0,
+                              "high": 100.5, "low": 99.5, "close": 100.0, "volume": 1000} for i in range(n)])
+
+    class QuoteCtx:
+        instances = []
+
+        def __init__(self, **kw):
+            self.calls = []
+            self.subscribed = False
+            QuoteCtx.instances.append(self)
+
+        def set_handler(self, h):
+            pass
+
+        def get_market_snapshot(self, codes):
+            self.calls.append(("snapshot",))
+            return 0, pd.DataFrame([{"code": c, "name": c, "lot_size": 1, "last_price": 100.0, "bid_price": 99.99,
+                                     "ask_price": 100.01} for c in codes])
+
+        def subscribe(self, codes, subs, **kw):
+            self.calls.append(("subscribe", kw.get("session")))
+            self.subscribed = True
+            return 0, None
+
+        def get_cur_kline(self, code, n, ktype, autype):
+            self.calls.append(("cur_kline",))
+            if not self.subscribed:
+                return -1, "please subscribe first"
+            return 0, _klines(n)
+
+        def request_history_kline(self, code, **kw):
+            self.calls.append(("history", kw.get("session")))
+            return 0, _klines(300, "2026-10-07 20:00:00"), None
+
+        def close(self):
+            pass
+
+    m.OpenQuoteContext = QuoteCtx
     return m

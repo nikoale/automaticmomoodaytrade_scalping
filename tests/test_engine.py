@@ -142,3 +142,21 @@ def test_failed_exit_is_throttled():
     broker.fail_exits = False
     eng.check_price(980, t.replace(second=11))
     assert eng.position is None
+
+
+def test_vwap_and_risk_do_not_reset_at_midnight_with_rollover():
+    from datetime import timedelta
+
+    from scalper.config import load_config
+    from scalper.models import Bar
+    from scalper.strategies import EmaVwapMomentum
+    cfg = load_config("config/config.us.ext.example.yaml")
+    strat = EmaVwapMomentum()
+    risk = RiskManager(cfg.risk)
+    eng = SymbolEngine("US.NVDA", cfg, strat, risk, SimBroker(cfg.execution, "US"))
+    t = datetime(2026, 10, 7, 23, 58)
+    for i, px in enumerate([100, 200, 300]):          # 23:58, 23:59, 00:00 (日付またぎ)
+        eng.on_bar(Bar(t + timedelta(minutes=i), px, px, px, px, 100))
+    assert strat.vwap.value == 200                    # 0 時でリセットされていない
+    eng.on_bar(Bar(datetime(2026, 10, 8, 20, 1), 50, 50, 50, 50, 100))
+    assert strat.vwap.value == 50                     # 20:00 で新しい取引日

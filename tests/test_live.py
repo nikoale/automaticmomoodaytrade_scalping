@@ -128,3 +128,35 @@ def test_paper_broker_fills_at_book():
     pb = PaperBroker(cfg, lambda c: (998.0, 1000.0))
     assert pb.execute("JP.7203", Side.BUY, 100, 999, datetime.now()).price == 1000
     assert pb.execute("JP.7203", Side.SELL, 100, 999, datetime.now()).price == 998
+
+
+def _start(fake, cfg):
+    from scalper.live import LiveRunner
+    m = fake()
+    runner = LiveRunner(cfg)
+    runner._connect()
+    runner._build_engines()
+    runner._subscribe()
+    for eng in runner.engines.values():
+        runner._warmup(eng)
+    return m.OpenQuoteContext.instances[-1], runner
+
+
+def test_runner_subscribes_before_warmup_rth(fake):
+    from scalper.config import load_config
+    cfg = load_config("config/config.us.example.yaml", {"mode": "paper", "warmup_bars": 50})
+    ctx, runner = _start(fake, cfg)
+    kinds = [c[0] for c in ctx.calls]
+    assert kinds.index("subscribe") < kinds.index("cur_kline")
+    assert ("subscribe", None) in ctx.calls
+    assert all(e.strategy.ready for e in runner.engines.values())
+
+
+def test_runner_extended_hours_uses_session_and_history(fake):
+    from scalper.config import load_config
+    cfg = load_config("config/config.us.ext.example.yaml", {"warmup_bars": 100})
+    ctx, runner = _start(fake, cfg)
+    assert ("subscribe", "ALL") in ctx.calls and ("history", "ALL") in ctx.calls
+    assert "cur_kline" not in [c[0] for c in ctx.calls]
+    eng = runner.engines["US.NVDA"]
+    assert eng.strategy.ready and runner._last_bar_time["US.NVDA"] is not None

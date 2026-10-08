@@ -35,6 +35,7 @@ class SymbolEngine:
         self.risk = risk
         self.broker = broker
         self.sessions = sessions or TradingSessions.from_config(cfg.session)
+        self.strategy.day_offset = self.sessions.day_offset
         self.lot_size = lot_size or cfg.risk.lot_size
         self.on_trade = on_trade
         self.position: Position | None = None
@@ -58,7 +59,7 @@ class SymbolEngine:
             self.strategy.on_bar(b)
 
     def on_bar(self, bar: Bar, intrabar_exits: bool = True) -> None:
-        self.risk.roll_day(bar.time)
+        self.risk.roll_day(bar.time - self.sessions.day_offset)
         self.risk.on_bar(self.code)
         self.last_price = bar.close
 

@@ -32,6 +32,11 @@ class SessionConfig:
     no_entry_last_minutes: int = 15        # 各セッション終了 N 分前から新規エントリーしない
     flatten_before_close_minutes: int = 5  # 大引け N 分前に全決済 (オーバーナイトしない)
     flatten_at_lunch: bool = True          # 前場引けでも決済する (昼休みの持ち越しリスク回避)
+    # 米国株の時間外取引: RTH(通常のみ) / ETH(+プレ・アフター) / ALL(+オーバーナイト) / OVERNIGHT
+    us_session: str = "RTH"
+    # 「1 日」の区切り時刻。VWAP・ORB・1 日の損失上限がこの時刻でリセットされる。
+    # 米国株のオーバーナイト (20:00〜翌4:00 ET) を含める場合は "20:00" にすると深夜 0 時でリセットされない
+    day_rollover: str = "00:00"
 
     def parsed_sessions(self) -> list[tuple[time, time]]:
         out = []
@@ -113,6 +118,10 @@ class Config:
             )
         if self.risk.allow_short and self.market == "JP" and self.mode == "live":
             raise ValueError("日本株の空売り (信用取引) は本ボットの live モードでは未対応です。")
+        if self.session.us_session.upper() not in ("RTH", "ETH", "ALL", "OVERNIGHT"):
+            raise ValueError("session.us_session は RTH / ETH / ALL / OVERNIGHT のいずれか")
+        if self.session.us_session.upper() != "RTH" and self.market != "US":
+            raise ValueError("時間外取引 (us_session) は米国株のみ対応です")
         if self.bar_minutes not in (1, 3, 5, 15):
             raise ValueError("bar_minutes は 1/3/5/15 のいずれか")
         for s in self.symbols:

@@ -11,7 +11,7 @@ import logging
 import queue
 import signal
 import time as _time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -151,33 +151,64 @@ class LiveRunner:
                 # ボットが建てていない既存ポジションには触らない (誤決済防止)
                 log.warning("%s: 既存ポジション %d 株があるため、この銘柄は売買しません", code, existing[code])
                 eng.enabled = False
-            self._warmup(eng)
             self.engines[code] = eng
 
+    @property
+    def _session(self):
+        """moomoo の Session 値 (米国株の時間外取引用)。RTH のときは None。"""
+        name = self.cfg.session.us_session.upper()
+        return None if name == "RTH" else getattr(self.mm.Session, name)
+
     def _warmup(self, eng: SymbolEngine) -> None:
+        """過去足で指標を温める。get_cur_kline は購読済みであることが必要。"""
         mm = self.mm
         ktype = getattr(mm.KLType, _KTYPE[self.cfg.bar_minutes])
-        ret, df = self.quote_ctx.get_cur_kline(eng.code, self.cfg.warmup_bars + 1, ktype, mm.AuType.QFQ)
-        if ret != mm.RET_OK:
+        n = self.cfg.warmup_bars + 1
+        if self._session is None:
+            ret, df = self.quote_ctx.get_cur_kline(eng.code, n, ktype, mm.AuType.QFQ)
+            rows = [r.to_dict() for _, r in df.iterrows()] if ret == mm.RET_OK else None
+        else:
+            rows = self._history_rows(eng.code, ktype, n)
+            ret, df = (mm.RET_OK, None) if rows is not None else (mm.RET_ERROR, "history failed")
+        if rows is None:
             log.warning("%s warmup failed: %s", eng.code, df)
             return
-        bars = [_row_to_bar(r) for _, r in df.iterrows()]
+        bars = [_row_to_bar(r) for r in rows]
         # 最後の 1 本は形成中なので除外し、プッシュ側で扱う
         if bars:
-            self._pending_bar[eng.code] = df.iloc[-1].to_dict()
+            self._pending_bar.setdefault(eng.code, rows[-1])
             bars = bars[:-1]
         eng.warmup(bars)
         if bars:
             self._last_bar_time[eng.code] = bars[-1].time
-        log.info("%s warmed up with %d bars (ready=%s)", eng.code, len(bars), eng.strategy.ready)
+        log.info("%s warmed up with %d bars (last=%s, ready=%s)", eng.code, len(bars),
+                 bars[-1].time if bars else None, eng.strategy.ready)
+
+    def _history_rows(self, code: str, ktype, n: int) -> list[dict] | None:
+        """時間外を含む直近 n 本 (get_cur_kline は時間外を含まないため履歴 API を使う)。"""
+        mm = self.mm
+        start = (self.now() - timedelta(days=4)).strftime("%Y-%m-%d")
+        end = (self.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        rows, page = [], None
+        while True:
+            ret, df, page = self.quote_ctx.request_history_kline(
+                code, start=start, end=end, ktype=ktype, max_count=1000, page_req_key=page,
+                session=self._session)
+            if ret != mm.RET_OK:
+                log.warning("%s request_history_kline failed: %s", code, df)
+                return None
+            rows.extend(r.to_dict() for _, r in df.iterrows())
+            if page is None:
+                return rows[-n:]
 
     def _subscribe(self) -> None:
         mm = self.mm
         subs = [getattr(mm.SubType, _KTYPE[self.cfg.bar_minutes]), mm.SubType.QUOTE, mm.SubType.ORDER_BOOK]
-        ret, err = self.quote_ctx.subscribe(self.cfg.symbols, subs, subscribe_push=True)
+        kw = {} if self._session is None else {"session": self._session}
+        ret, err = self.quote_ctx.subscribe(self.cfg.symbols, subs, subscribe_push=True, **kw)
         if ret != mm.RET_OK:
             raise SystemExit(f"subscribe 失敗: {err}")
-        log.info("subscribed %s %s", self.cfg.symbols, subs)
+        log.info("subscribed %s %s session=%s", self.cfg.symbols, subs, self.cfg.session.us_session)
 
     # ------------------------------------------------------------------ event handling
     def _on_kline(self, code: str, row: dict) -> None:
@@ -241,6 +272,8 @@ class LiveRunner:
         try:
             self._build_engines()
             self._subscribe()
+            for eng in self.engines.values():
+                self._warmup(eng)
             signal.signal(signal.SIGINT, self.stop)
             signal.signal(signal.SIGTERM, self.stop)
             last_status = 0.0

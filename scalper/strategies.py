@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from .indicators import ATR, EMA, RSI, RollingMean, SessionVWAP
 from .models import Bar, Signal
@@ -21,11 +21,15 @@ class Strategy:
         self.last_bar: Bar | None = None
         self._stop_hint: float | None = None
         self._target_hint: float | None = None
+        self.day_offset = timedelta(0)   # 取引日の区切り (engine が session.day_rollover から設定)
+
+    def trading_day(self, t: datetime) -> date:
+        return (t - self.day_offset).date()
 
     # 共通指標の更新。サブクラスは super().on_bar() を最初に呼ぶ
     def on_bar(self, bar: Bar) -> Signal:
         self.atr.update(bar.high, bar.low, bar.close)
-        self.vwap.update(bar.time.date(), bar.high, bar.low, bar.close, bar.volume)
+        self.vwap.update(self.trading_day(bar.time), bar.high, bar.low, bar.close, bar.volume)
         self._prev_avg_volume = self.avg_volume.value
         self.avg_volume.update(bar.volume)
         self.last_bar = bar
@@ -121,7 +125,7 @@ class OpeningRangeBreakout(Strategy):
 
     def on_bar(self, bar: Bar) -> Signal:
         super().on_bar(bar)
-        d = bar.time.date()
+        d = self.trading_day(bar.time)
         if d != self._day:
             self._day = d
             self._first_time = bar.time

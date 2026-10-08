@@ -53,3 +53,26 @@ def test_sessions_flatten():
     assert s.must_flatten(d.replace(hour=16))
     s.flatten_at_lunch = False
     assert not s.must_flatten(d.replace(hour=11, minute=26))
+
+
+def _us_ext():
+    return TradingSessions([(time(20, 0), time(4, 0)), (time(4, 0), time(9, 30)), (time(9, 30), time(16, 0)),
+                            (time(16, 0), time(20, 0))], no_entry_first_minutes=5, no_entry_last_minutes=10,
+                           flatten_before_close_minutes=3, flatten_at_lunch=True, day_rollover=time(20, 0))
+
+
+def test_overnight_session_crosses_midnight():
+    s = _us_ext()
+    assert s.session_index(datetime(2026, 10, 8, 0, 35)) == 0     # 深夜 0:35 はオーバーナイト
+    assert s.session_index(datetime(2026, 10, 7, 21, 0)) == 0
+    assert s.can_enter(datetime(2026, 10, 8, 0, 35))
+    assert not s.can_enter(datetime(2026, 10, 7, 20, 3))         # 開始直後
+    assert s.must_flatten(datetime(2026, 10, 8, 3, 58))           # オーバーナイト終了 3 分前
+    assert s.session_index(datetime(2026, 10, 8, 5, 0)) == 1      # プレマーケット
+    assert s.must_flatten(datetime(2026, 10, 8, 19, 58))          # アフター終了 = 取引日の最後
+
+
+def test_trading_day_rollover():
+    s = _us_ext()
+    assert s.trading_day(datetime(2026, 10, 7, 21, 0)) == s.trading_day(datetime(2026, 10, 8, 19, 0))
+    assert s.trading_day(datetime(2026, 10, 8, 19, 59)) != s.trading_day(datetime(2026, 10, 8, 20, 1))

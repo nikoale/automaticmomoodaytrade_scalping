@@ -1,7 +1,7 @@
 """市場ごとのルール: 呼値 (ティックサイズ) と取引時間。"""
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 
 # 東証 呼値テーブル (上限価格, 呼値)
@@ -47,10 +47,13 @@ class TradingSessions:
 
     def __init__(self, sessions: list[tuple[time, time]], no_entry_first_minutes: int = 0,
                  no_entry_last_minutes: int = 0, flatten_before_close_minutes: int = 0,
-                 flatten_at_lunch: bool = True):
+                 flatten_at_lunch: bool = True, day_rollover: time = time(0, 0)):
         if not sessions:
             raise ValueError("sessions must not be empty")
-        self.sessions = sorted(sessions)
+        self.day_offset = timedelta(hours=day_rollover.hour, minutes=day_rollover.minute)
+        # 取引日の中での順番 (day_rollover 起点) に並べる。最後のセッションが「大引け」
+        off = day_rollover.hour * 60 + day_rollover.minute
+        self.sessions = sorted(sessions, key=lambda se: (se[0].hour * 60 + se[0].minute - off) % 1440)
         self.no_entry_first = timedelta(minutes=no_entry_first_minutes)
         self.no_entry_last = timedelta(minutes=no_entry_last_minutes)
         self.flatten_before = timedelta(minutes=flatten_before_close_minutes)
@@ -58,16 +61,23 @@ class TradingSessions:
 
     @classmethod
     def from_config(cls, sc) -> "TradingSessions":
+        h, m = sc.day_rollover.split(":")
         return cls(sc.parsed_sessions(), sc.no_entry_first_minutes, sc.no_entry_last_minutes,
-                   sc.flatten_before_close_minutes, sc.flatten_at_lunch)
+                   sc.flatten_before_close_minutes, sc.flatten_at_lunch, time(int(h), int(m)))
+
+    def trading_day(self, t: datetime) -> date:
+        """t が属する取引日 (day_rollover 時刻で日付が切り替わる)。"""
+        return (t - self.day_offset).date()
 
     def _current(self, t: datetime) -> tuple[int, datetime, datetime] | None:
         for i, (s, e) in enumerate(self.sessions):
-            start = datetime.combine(t.date(), s)
-            end = datetime.combine(t.date(), e)
-            # 足の確定時刻ベースなので start < t <= end をセッション内とみなす
-            if start < t <= end:
-                return i, start, end
+            # 終了 <= 開始 のセッションは日付をまたぐ (例: オーバーナイト 20:00〜04:00)
+            for d in (t.date(), t.date() - timedelta(days=1)):
+                start = datetime.combine(d, s)
+                end = datetime.combine(d + timedelta(days=1) if e <= s else d, e)
+                # 足の確定時刻ベースなので start < t <= end をセッション内とみなす
+                if start < t <= end:
+                    return i, start, end
         return None
 
     def in_session(self, t: datetime) -> bool:

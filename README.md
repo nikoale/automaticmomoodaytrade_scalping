@@ -80,6 +80,14 @@ cp config/config.example.yaml config/config.yaml
 
 ## 使い方
 
+### ⓪ 接続確認（市場時間外でも OK）
+
+```bash
+python -m scalper check -c config/config.us.yaml
+```
+
+OpenD へのログイン状態、相場権限、現在値・気配、直近の足、板を表示します。売買はしません。
+
 ### ① バックテスト（OpenD 不要）
 
 ```bash
@@ -113,6 +121,19 @@ moomoo の実際の最良気配で約定したと仮定してローカルで損�
 cp config/config.us.example.yaml config/config.us.yaml
 python -m scalper run -c config/config.us.yaml --mode simulate
 ```
+
+### 米国株の時間外取引（プレ / アフター / オーバーナイト）
+
+```bash
+cp config/config.us.ext.example.yaml config/config.us.ext.yaml
+python -m scalper run -c config/config.us.ext.yaml --mode paper
+```
+
+`session.us_session` を `ETH`（プレ+アフター）/ `ALL`（+オーバーナイト）/ `OVERNIGHT` にすると時間外の足も受信します。
+オーバーナイト (20:00〜翌4:00 ET) は**日本時間の昼間**にあたるので、日中に動作確認できます。
+日付をまたぐセッションは `["20:00", "04:00"]` のように書き、`day_rollover: "20:00"` で
+VWAP・1 日の損失上限が深夜 0 時でリセットされないようにします。
+時間外は出来高が少なくスプレッドが広いので、まずは paper で。simulate / live での時間外注文は未検証です。
 
 ### ④ live モード（実口座。自己責任）
 
