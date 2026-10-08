@@ -68,7 +68,7 @@ class RiskConfig:
     risk_per_trade: float = 0.003          # 1 トレードの許容損失 (口座比)
     max_position_value: float = 500_000.0  # 1 ポジションの最大建玉金額
     max_open_positions: int = 1
-    lot_size: int = 100                    # 売買単位 (日本株=100, 米国株=1)。live 時は moomoo から自動取得
+    lot_size: float = 100                  # 売買単位 (日本株=100, 米国株=1, 暗号資産=0.0001 など)
     max_daily_loss: float = 10_000.0       # 当日損失がこれに達したら当日は停止
     max_trades_per_day: int = 30
     max_consecutive_losses: int = 4        # 連敗でその日は停止
@@ -118,6 +118,9 @@ class Config:
             )
         if self.risk.allow_short and self.market == "JP" and self.mode == "live":
             raise ValueError("日本株の空売り (信用取引) は本ボットの live モードでは未対応です。")
+        if self.market == "CC" and self.mode not in ("backtest", "paper"):
+            raise ValueError("暗号資産 (CC) は paper / backtest モードのみ対応です "
+                             "(moomoo OpenAPI に暗号資産の模擬口座がなく、実発注は未対応)")
         if self.session.us_session.upper() not in ("RTH", "ETH", "ALL", "OVERNIGHT"):
             raise ValueError("session.us_session は RTH / ETH / ALL / OVERNIGHT のいずれか")
         if self.session.us_session.upper() != "RTH" and self.market != "US":

@@ -93,14 +93,16 @@ def cmd_check(a) -> None:
 
         ret, info = ctx.get_user_info()
         if ret == mm.RET_OK and isinstance(info, dict):
-            rights = {k: v for k, v in info.items() if k in ("us_qot_right", "jp_stock_qot_right")}
+            rights = {k: v for k, v in info.items() if k in ("us_qot_right", "jp_stock_qot_right", "cc_qot_right")}
             print(f"[相場権限] {rights}")
 
         ret, snap = ctx.get_market_snapshot(cfg.symbols)
         if ret != mm.RET_OK:
-            raise SystemExit(f"\nget_market_snapshot 失敗: {snap}\n→ この市場の相場権限がない可能性があります")
-        print("\n[スナップショット]")
-        for _, r in snap.iterrows():
+            print(f"\n[スナップショット] 取得失敗: {snap}  (権限レベルによっては取れません。足が取れれば paper は動きます)")
+            snap = None
+        else:
+            print("\n[スナップショット]")
+        for _, r in (snap.iterrows() if snap is not None else []):
             print(f"  {r['code']:10} {str(r.get('name', ''))[:20]:20} 現在値={r['last_price']}  "
                   f"買気配={r.get('bid_price')}  売気配={r.get('ask_price')}  単位={r['lot_size']}  "
                   f"更新={r.get('update_time')}")
@@ -108,9 +110,14 @@ def cmd_check(a) -> None:
         session = cfg.session.us_session.upper()
         kw = {} if session == "RTH" else {"session": getattr(mm.Session, session)}
         ktype = _KTYPE[cfg.bar_minutes]
-        ret, err = ctx.subscribe(cfg.symbols, [getattr(mm.SubType, ktype), mm.SubType.ORDER_BOOK], **kw)
+        ret, err = ctx.subscribe(cfg.symbols, [getattr(mm.SubType, ktype)], **kw)
         if ret != mm.RET_OK:
-            raise SystemExit(f"subscribe 失敗: {err}")
+            raise SystemExit(f"\n足の購読に失敗: {err}\n→ この市場の相場権限がないか、銘柄コードが違います "
+                             f"(python -m scalper symbols -c ... で確認)")
+        ret, err = ctx.subscribe(cfg.symbols, [mm.SubType.ORDER_BOOK])
+        has_book = ret == mm.RET_OK
+        if not has_book:
+            print(f"\n[板] 購読できません ({err})。paper は現在値で約定計算します")
         for code in cfg.symbols:
             ret, df = ctx.get_cur_kline(code, 5, getattr(mm.KLType, ktype), mm.AuType.QFQ)
             print(f"\n[{code} 直近の{cfg.bar_minutes}分足]")
@@ -119,12 +126,33 @@ def cmd_check(a) -> None:
                     print(f"  {r['time_key']}  O={r['open']} H={r['high']} L={r['low']} C={r['close']} V={r['volume']}")
             else:
                 print(f"  取得失敗: {df}")
-            ret, ob = ctx.get_order_book(code, num=3)
+            ret, ob = ctx.get_order_book(code, num=3) if has_book else (mm.RET_ERROR, None)
             if ret == mm.RET_OK:
                 bids = [(p, v) for p, v, *_ in ob.get("Bid", [])]
                 asks = [(p, v) for p, v, *_ in ob.get("Ask", [])]
                 print(f"  板 売: {asks}\n     買: {bids}")
         print("\n✅ OpenD との接続と相場取得は正常です。")
+    finally:
+        ctx.close()
+
+
+def cmd_symbols(a) -> None:
+    """moomoo の銘柄コード一覧 (暗号資産のコード確認用)。"""
+    import moomoo as mm
+    cfg = load_config(a.config)
+    market = (a.market or cfg.market).upper()
+    stype = mm.SecurityType.CRYPTO if market == "CC" else mm.SecurityType.STOCK
+    ctx = mm.OpenQuoteContext(host=cfg.moomoo.host, port=cfg.moomoo.port)
+    try:
+        ret, df = ctx.get_stock_basicinfo(getattr(mm.Market, market), stype)
+        if ret != mm.RET_OK:
+            raise SystemExit(f"get_stock_basicinfo 失敗: {df}")
+        if a.grep:
+            q = a.grep.upper()
+            df = df[df["code"].str.upper().str.contains(q) | df["name"].astype(str).str.upper().str.contains(q)]
+        for _, r in df.head(a.limit).iterrows():
+            print(f"{r['code']:20} {r['name']}  (lot={r['lot_size']})")
+        print(f"-- {len(df)} 件 (表示 {min(len(df), a.limit)} 件)")
     finally:
         ctx.close()
 
@@ -173,6 +201,13 @@ def main(argv=None) -> None:
     c = sub.add_parser("check", help="OpenD 接続・相場権限・現在値・板を確認 (市場時間外でも可)")
     c.add_argument("-c", "--config", required=True)
     c.set_defaults(func=cmd_check)
+
+    y = sub.add_parser("symbols", help="銘柄コード一覧 (例: --market CC --grep BTC)")
+    y.add_argument("-c", "--config", required=True)
+    y.add_argument("--market", help="CC / US / JP (省略時は config の trd_market)")
+    y.add_argument("--grep", help="コード・名前の部分一致")
+    y.add_argument("--limit", type=int, default=50)
+    y.set_defaults(func=cmd_symbols)
 
     r = sub.add_parser("run", help="リアルタイム売買 (paper / simulate / live)")
     r.add_argument("-c", "--config", required=True)

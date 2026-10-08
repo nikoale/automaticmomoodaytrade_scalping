@@ -44,7 +44,7 @@ def save_csv(bars: list[Bar], path: str | Path) -> None:
         w = csv.writer(fh)
         w.writerow(["time", "open", "high", "low", "close", "volume"])
         for b in bars:
-            w.writerow([b.time.strftime(TIME_FMT), b.open, b.high, b.low, b.close, int(b.volume)])
+            w.writerow([b.time.strftime(TIME_FMT), b.open, b.high, b.low, b.close, int(b.volume) if float(b.volume).is_integer() else b.volume])
 
 
 def resample(bars: list[Bar], minutes: int) -> list[Bar]:

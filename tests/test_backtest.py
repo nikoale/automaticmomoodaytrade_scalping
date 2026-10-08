@@ -36,3 +36,14 @@ def test_simulate_rejected_for_jp():
     import pytest
     with pytest.raises(ValueError, match="SIMULATE"):
         load_config(overrides={"mode": "simulate"})
+
+
+def test_crypto_config_paper_only_and_backtests():
+    import pytest
+    cfg = load_config("config/config.crypto.example.yaml", {"mode": "backtest"})
+    data = generate_sample(days=3, start_price=60_000, market="US", seed=5)
+    res = run_backtest(cfg, {"CC.BTCUSD": data})
+    for t in res.trades:
+        assert t.qty < 1                       # 小数数量
+    with pytest.raises(ValueError, match="paper"):
+        load_config("config/config.crypto.example.yaml", {"mode": "live"})

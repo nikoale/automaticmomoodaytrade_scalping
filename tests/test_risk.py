@@ -44,3 +44,10 @@ def test_size_shrinks_near_daily_limit():
     r.on_open("A"); r.on_close("A", -4_000)
     # 残り許容 1000 円 / 10 円 = 100 株
     assert r.position_size(1000, 10) == 100
+
+
+def test_fractional_lot_for_crypto():
+    r = RiskManager(RiskConfig(account_size=10_000, risk_per_trade=0.002, max_position_value=2_000,
+                               lot_size=0.0001, max_daily_loss=60))
+    q = r.position_size(60_000, 100)   # 20 ドル / 100 = 0.2, 上限 2000/60000 = 0.0333
+    assert q == 0.0333

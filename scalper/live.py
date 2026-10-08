@@ -119,13 +119,18 @@ class LiveRunner:
         self.quote_ctx.set_handler(QHandler())
         self.quote_ctx.set_handler(BHandler())
 
-    def _lot_sizes(self) -> dict[str, int]:
+    def _lot_sizes(self) -> dict[str, float]:
         ret, df = self.quote_ctx.get_market_snapshot(self.cfg.symbols)
         if ret != self.mm.RET_OK:
-            raise SystemExit(f"get_market_snapshot 失敗 (相場権限・銘柄コードを確認): {df}")
+            if self.cfg.mode != "paper":
+                raise SystemExit(f"get_market_snapshot 失敗 (相場権限・銘柄コードを確認): {df}")
+            log.warning("get_market_snapshot 失敗 (%s)。売買単位は config の lot_size=%s を使います",
+                        df, self.cfg.risk.lot_size)
+            return {}
         out = {}
         for _, row in df.iterrows():
-            out[row["code"]] = int(row["lot_size"]) or self.cfg.risk.lot_size
+            if self.cfg.market != "CC":   # 暗号資産は小数単位なので config の lot_size を使う
+                out[row["code"]] = float(row["lot_size"] or 0) or self.cfg.risk.lot_size
             log.info("%s %s lot=%s last=%s bid=%s ask=%s", row["code"], row.get("name", ""), row["lot_size"],
                      row["last_price"], row.get("bid_price"), row.get("ask_price"))
         return out
@@ -203,12 +208,18 @@ class LiveRunner:
 
     def _subscribe(self) -> None:
         mm = self.mm
-        subs = [getattr(mm.SubType, _KTYPE[self.cfg.bar_minutes]), mm.SubType.QUOTE, mm.SubType.ORDER_BOOK]
+        subs = [getattr(mm.SubType, _KTYPE[self.cfg.bar_minutes]), mm.SubType.QUOTE]
         kw = {} if self._session is None else {"session": self._session}
         ret, err = self.quote_ctx.subscribe(self.cfg.symbols, subs, subscribe_push=True, **kw)
         if ret != mm.RET_OK:
-            raise SystemExit(f"subscribe 失敗: {err}")
-        log.info("subscribed %s %s session=%s", self.cfg.symbols, subs, self.cfg.session.us_session)
+            raise SystemExit(f"subscribe 失敗 (相場権限・銘柄コードを確認): {err}")
+        # 板は権限レベル (LV1 など) によっては取れない。取れなければ現在値で代用する
+        ret, err = self.quote_ctx.subscribe(self.cfg.symbols, [mm.SubType.ORDER_BOOK], subscribe_push=True)
+        if ret != mm.RET_OK:
+            if self.cfg.mode != "paper":
+                raise SystemExit(f"板 (ORDER_BOOK) の購読に失敗: {err}")
+            log.warning("板の購読に失敗 (%s)。paper の約定は現在値 + スリッページで計算します", err)
+        log.info("subscribed %s session=%s", self.cfg.symbols, self.cfg.session.us_session)
 
     # ------------------------------------------------------------------ event handling
     def _on_kline(self, code: str, row: dict) -> None:

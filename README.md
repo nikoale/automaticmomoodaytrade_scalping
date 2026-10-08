@@ -135,6 +135,18 @@ python -m scalper run -c config/config.us.ext.yaml --mode paper
 VWAP・1 日の損失上限が深夜 0 時でリセットされないようにします。
 時間外は出来高が少なくスプレッドが広いので、まずは paper で。simulate / live での時間外注文は未検証です。
 
+### 暗号資産（24 時間・paper のみ）
+
+```bash
+cp config/config.crypto.example.yaml config/config.crypto.yaml
+python -m scalper symbols -c config/config.crypto.yaml --market CC --grep BTC   # コードを確認して symbols に設定
+python -m scalper check -c config/config.crypto.yaml
+python -m scalper run -c config/config.crypto.yaml
+```
+
+数量は `lot_size: 0.0001` のような小数単位で計算します。板が取れない権限 (LV1 など) の場合は現在値＋スリッページで約定計算します。
+moomoo OpenAPI に暗号資産の模擬口座がないため、simulate / live には対応していません。
+
 ### ④ live モード（実口座。自己責任）
 
 ```bash

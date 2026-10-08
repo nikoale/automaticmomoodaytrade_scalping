@@ -56,9 +56,14 @@ class RiskManager:
             return False, "cooldown after loss"
         return True, ""
 
-    def position_size(self, price: float, stop_distance: float, lot_size: int | None = None) -> int:
-        """1 トレードの損失が risk_per_trade × 口座 に収まる株数 (売買単位の倍数)。"""
-        lot = max(1, int(lot_size or self.cfg.lot_size))
+    def position_size(self, price: float, stop_distance: float, lot_size: float | None = None) -> float:
+        """1 トレードの損失が risk_per_trade × 口座 に収まる数量 (売買単位の倍数)。
+
+        株は整数 (100 株単位など)、暗号資産は 0.0001 BTC のような小数単位にも対応。
+        """
+        lot = float(lot_size or self.cfg.lot_size)
+        if lot <= 0:
+            lot = 1.0
         if price <= 0 or stop_distance <= 0:
             return 0
         risk_amount = self.cfg.account_size * self.cfg.risk_per_trade
@@ -67,8 +72,13 @@ class RiskManager:
         risk_amount = min(risk_amount, max(remaining, 0.0))
         by_risk = risk_amount / stop_distance
         by_value = self.cfg.max_position_value / price
-        qty = math.floor(min(by_risk, by_value) / lot) * lot
-        return max(qty, 0)
+        n = math.floor(min(by_risk, by_value) / lot + 1e-9)
+        if n <= 0:
+            return 0
+        if lot.is_integer():
+            return int(n * lot)
+        decimals = max(0, -math.floor(math.log10(lot)) + 2)
+        return round(n * lot, decimals)
 
     # ---- 状態更新 ----
     def on_open(self, code: str) -> None:

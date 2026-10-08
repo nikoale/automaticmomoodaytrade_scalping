@@ -27,7 +27,7 @@ EXIT_RETRY_SECONDS = 10
 
 class SymbolEngine:
     def __init__(self, code: str, cfg: Config, strategy: Strategy, risk: RiskManager, broker: Broker,
-                 sessions: TradingSessions | None = None, lot_size: int | None = None,
+                 sessions: TradingSessions | None = None, lot_size: float | None = None,
                  on_trade: Callable[[Trade], None] | None = None):
         self.code = code
         self.cfg = cfg

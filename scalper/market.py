@@ -1,6 +1,7 @@
 """市場ごとのルール: 呼値 (ティックサイズ) と取引時間。"""
 from __future__ import annotations
 
+import math
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 
@@ -30,6 +31,9 @@ def tick_size(price: float, market: str, setting="auto") -> float:
                 return float(tick)
     if market == "US":
         return 0.01 if price >= 1.0 else 0.0001
+    if market == "CC" and price > 0:
+        # 暗号資産は銘柄ごとに刻みが違うので価格の 6 桁目を目安にする (BTC 60000 → 0.01)
+        return 10.0 ** (math.floor(math.log10(price)) - 6)
     return 0.01
 
 
