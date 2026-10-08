@@ -1,0 +1,96 @@
+# ===== 米国株スイング自動売買ボット 設定 =====
+# すべての数値はここで管理する (コードにハードコードしない)
+
+account:
+  capital_jpy: 200000            # 運用資金 (円)
+  fx_rate_jpy_per_usd: 150.0     # 円→ドル換算レート (バックテストでは固定。為替変動は考慮しない)
+  fx_cost_pct: 0.0               # 両替コスト (片道 %)。0 = 無料と仮定
+  settlement_days: 1             # 受渡日数 (米国株 T+1)。売却代金はこの営業日数後から再利用できる
+
+fees:
+  commission_pct: 0.132          # 片道 約定代金 × 0.132% (moomoo証券 ベーシックコース)
+  commission_max_usd: 22.0       # 1 注文あたりの上限
+  slippage_pct: 0.1              # 片道スリッページ (寄り付き成行なので厳しめ)
+
+data:
+  dir: data                      # 価格・決算日・銘柄情報のキャッシュ置き場
+  price_source: yahoo            # yahoo (yfinance) / stooq
+  history_start: "2010-01-01"    # 取得開始日 (10 年以上)
+  benchmark: SPY                 # 市場フィルター用の指数 ETF
+  earnings_source: yahoo         # yahoo (yfinance) / moomoo (OpenD: get_earnings_calendar ※要確認)
+
+universe:
+  # 普通株とみなす名前 (Nasdaq Trader の Security Name にこのどれかを含む)
+  require_name_patterns: ["Common Stock", "Ordinary Share", "Common Shares", "Class A", "Class B", "Class C"]
+  exclude_adr: true              # ADR (American Depositary) を除外
+  # 名前にこれらを含む銘柄は除外 (SPAC・ワラント・ユニット・優先株など)
+  exclude_name_patterns: ["Acquisition Corp", "Acquisition Co", "Acquisition Inc", "Acquisition Ltd",
+                          "Acquisition Holdings", " SPAC", "Warrant", " Unit", " Units", " Right",
+                          "Preferred", "Depositary", "Notes due", "Debentures", "% Notes", "Trust Units",
+                          "Beneficial Interest", "Limited Partnership"]
+
+screener:
+  price_min: 10.0
+  price_max: 100.0
+  avg_volume_days: 20
+  avg_volume_min: 500000         # 直近 20 日の平均出来高 (株)
+  market_cap_min_usd: 300000000  # 時価総額 3 億ドル
+  earnings_exclude_days: 15      # 次回決算が今後 N 営業日以内なら除外
+  earnings_unknown_policy: exclude   # 決算日が取れない銘柄: exclude (除外・ログに要確認) / keep (残して要確認フラグ)
+  sma_fast: 50
+  sma_slow: 200
+  momentum_days: 126             # 6 ヶ月 ≒ 126 営業日
+  momentum_top_pct: 20           # 6 ヶ月上昇率が市場全体の上位 20%
+  volume_ratio_short: 20         # 出来高の伸び = 20 日平均 / 100 日平均
+  volume_ratio_long: 100
+  top_n: 20                      # 監視リストの銘柄数
+  index_sma: 200                 # 指数 (SPY) がこの移動平均を下回る週は監視リストを空にする
+  breakout_days: 20              # 監視リストに添付する 20 日高値
+  atr_days: 14
+
+strategy:
+  breakout_days: 20              # 終値が直近 20 日高値を上抜け
+  breakout_volume_mult: 1.5      # その日の出来高が 20 日平均の 1.5 倍以上
+  max_positions: 3
+  reentry_cooldown_days: 5       # 手仕舞いから N 営業日は同じ銘柄に再エントリーしない
+  atr_days: 14
+  initial_stop_atr: 2.0          # 初期損切り = エントリー価格 − ATR × 2
+  trail_trigger_atr: 2.0         # 含み益が ATR × 2 を超えたらトレーリング開始
+  trail_sma: 20                  # トレーリング損切り = max(20 日移動平均, 建玉後の最高値 − ATR × 2)
+  trail_atr: 2.0
+  time_exit_days: 20             # 保有 20 営業日で
+  time_exit_min_gain_atr: 1.0    #   含み益が ATR × 1 未満なら手仕舞い
+  earnings_exit_days_before: 2   # 決算日の 2 営業日前に手仕舞い
+  index_filter: true             # SPY < 200 日線の日は全手仕舞い & 新規停止
+
+risk:
+  risk_per_trade_pct: 2.0        # 1 トレードのリスク額 = 口座資金の 2%
+  max_position_pct: 40.0         # 1 銘柄の上限 = 資金の 40%
+  weekly_loss_limit_pct: 6.0     # その週の損失が資金の 6% に達したら新規停止
+  allow_fractional: false        # 1 株未満 (micro 米国株) は使わない ※要確認事項
+
+backtest:
+  start: "2012-01-01"            # 口座シミュレーション開始 (指標計算用に history_start から助走)
+  end: null                      # null = データの最終日
+  out_of_sample_years: 2         # 直近 2 年を検証外期間にする
+  stress_periods:                # 下落局面の個別評価
+    "2020年": ["2020-01-01", "2020-12-31"]
+    "2022年": ["2022-01-01", "2022-12-31"]
+  market_cap_proxy: current_shares   # 過去の時価総額 = 現在の発行済株数 × その日の株価 (近似) / none = フィルター無効
+  report_dir: reports
+
+moomoo:                          # フェーズ 3 以降で使用 (発注・日次データ)
+  host: 127.0.0.1
+  port: 11111
+  security_firm: FUTUJP
+  trd_env: SIMULATE              # SIMULATE のみ。REAL は allow_real と起動時の確認の二重ロック (フェーズ 3)
+  allow_real: false
+
+schedule:                        # フェーズ 4 (runner) で使用
+  timezone: Asia/Tokyo
+  daily_run: "07:30"             # 日本時間。米国の引け (夏 5:00 / 冬 6:00 JST) の後
+  weekly_screen_day: Saturday
+  weekly_screen_time: "09:00"
+
+logging:
+  dir: logs

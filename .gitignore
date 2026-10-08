@@ -9,3 +9,9 @@ data/*.csv
 config/config.yaml
 config/gui_settings.json
 .env
+
+reports/
+data/prices/
+data/earnings/
+data/watchlists/
+data/*.csv

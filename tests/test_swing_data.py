@@ -1,0 +1,93 @@
+from datetime import date
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from swing import data
+from swing_helpers import cfg
+
+NASDAQ = """Symbol|Security Name|Market Category|Test Issue|Financial Status|Round Lot Size|ETF|NextShares
+AAPL|Apple Inc. - Common Stock|Q|N|N|100|N|N
+QQQ|Invesco QQQ Trust, Series 1|G|N|N|100|Y|N
+ZZZT|Test Company - Common Stock|Q|Y|N|100|N|N
+BADF|Bad Finance Inc. - Common Stock|Q|N|D|100|N|N
+SPCX|Example Acquisition Corp - Class A Ordinary Shares|G|N|N|100|N|N
+SPCXW|Example Acquisition Corp - Warrant|G|N|N|100|N|N
+ADRX|Foreign Co - American Depositary Shares|Q|N|N|100|N|N
+File Creation Time: 1007202618:00|||||||
+"""
+OTHER = """ACT Symbol|Security Name|Exchange|CQS Symbol|ETF|Round Lot Size|Test Issue|NASDAQ Symbol
+BRK.B|Berkshire Hathaway Inc. Class B Common Stock|N|BRK.B|N|100|N|BRK.B
+SPY|SPDR S&P 500 ETF Trust|P|SPY|Y|100|N|SPY
+XYZ$A|XYZ Corp 6% Preferred Stock Series A|N|XYZpA|N|100|N|XYZ-A
+NEWC|New Co Common Stock|A|NEWC|N|100|N|NEWC
+File Creation Time: 1007202618:00|||||||
+"""
+
+
+def test_universe_keeps_only_common_stocks():
+    df = data.parse_symbol_directory(NASDAQ, OTHER, cfg())
+    assert list(df["symbol"]) == ["AAPL", "BRK.B", "NEWC"]
+    assert data.yahoo_symbol("BRK.B") == "BRK-B"
+
+
+def test_price_cache_roundtrip_and_panel(tmp_path):
+    c = cfg(data={"dir": str(tmp_path)})
+    idx = pd.bdate_range("2020-01-01", periods=300)
+    def frame(close, vol=1e6):
+        cl = np.asarray(close, dtype=float)
+        return pd.DataFrame({"open": cl, "high": cl * 1.01, "low": cl * 0.99, "close": cl, "volume": vol}, index=idx)
+    data.write_prices(c, "SPY", frame(np.linspace(300, 400, 300)))
+    data.write_prices(c, "GOOD", frame(np.linspace(20, 50, 300)))
+    data.write_prices(c, "PENNY", frame(np.linspace(1, 4, 300)))                 # 上昇率は GOOD より上だが 10 ドル未満
+    short = frame(np.linspace(20, 30, 300)).iloc[-100:]                            # 200 日分ない → 除外
+    data.write_prices(c, "SHORT", short)
+    back = data.read_prices(c, "GOOD")
+    assert len(back) == 300 and back["close"].iloc[-1] == pytest.approx(50)
+    panel = data.load_panel(c, ["GOOD", "PENNY", "SHORT", "MISSING"])
+    assert list(panel["close"].columns) == ["GOOD"]                                # PENNY は刈り込み
+    assert panel["bench_close"].iloc[-1] == pytest.approx(400)
+    # 6 ヶ月上昇率の順位は刈り込み前の全銘柄で計算している (PENNY の方が上 → GOOD は 2 銘柄中 2 位)
+    assert panel["mom_pct"]["GOOD"].iloc[-1] == pytest.approx(0.5)               # GOOD と PENNY の 2 銘柄中
+    # 差分更新の継ぎ足し
+    new = frame(np.linspace(20, 50, 300)).iloc[-5:].copy()
+    new.index = pd.bdate_range(idx[-1] + pd.Timedelta(days=1), periods=5)
+    merged = data._merge(back, new)
+    assert len(merged) == 305
+
+
+def test_earnings_cache(tmp_path):
+    c = cfg(data={"dir": str(tmp_path)})
+    assert data.read_earnings(c, "AAA") is None
+    data.write_earnings(c, "AAA", [date(2024, 1, 25), date(2024, 4, 25)])
+    data.write_earnings(c, "AAA", [date(2024, 4, 25), date(2024, 7, 25)])        # 追記・重複排除
+    assert data.read_earnings(c, "AAA") == [date(2024, 1, 25), date(2024, 4, 25), date(2024, 7, 25)]
+
+
+def test_fetch_yahoo_parses_multiindex(monkeypatch):
+    import sys
+    import types
+    idx = pd.DatetimeIndex(pd.bdate_range("2024-01-01", periods=3), tz="America/New_York")
+    cols = pd.MultiIndex.from_product([["AAPL", "BRK-B"], ["Open", "High", "Low", "Close", "Volume"]])
+    df = pd.DataFrame(np.arange(30, dtype=float).reshape(3, 10) + 1, index=idx, columns=cols)
+    df[("BRK-B", "Close")] = np.nan                       # データなし → 除外
+    calls = {}
+
+    def download(tickers, **kw):
+        calls.update(kw, tickers=tickers)
+        return df
+    fake = types.SimpleNamespace(download=download)
+    monkeypatch.setitem(sys.modules, "yfinance", fake)
+    out = data.fetch_yahoo(["AAPL", "BRK.B"], "2024-01-01", pause=0)
+    assert list(out) == ["AAPL"] and list(out["AAPL"].columns) == data.PRICE_COLS
+    assert out["AAPL"].index.tz is None and calls["auto_adjust"] is True and "BRK-B" in calls["tickers"]
+
+
+def test_fetch_earnings_yahoo_parses_tz_index(monkeypatch):
+    import sys
+    import types
+    idx = pd.DatetimeIndex(["2024-04-25 16:00", "2024-07-25 16:00"], tz="America/New_York")
+    tk = types.SimpleNamespace(get_earnings_dates=lambda limit: pd.DataFrame({"EPS Estimate": [1, 2]}, index=idx))
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(Ticker=lambda s: tk))
+    assert data.fetch_earnings_yahoo("AAA") == [date(2024, 4, 25), date(2024, 7, 25)]
