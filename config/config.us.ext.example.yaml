@@ -23,7 +23,7 @@ session:
   no_entry_first_minutes: 5
   no_entry_last_minutes: 10
   flatten_before_close_minutes: 3
-  flatten_at_lunch: true        # 各時間帯の終わりで決済 (時間帯の切り替わりは値が飛びやすい)
+  flatten_each_session: true    # 各時間帯の終わりで決済 (時間帯の切り替わりは値が飛びやすい)
 strategy:
   name: ema_vwap
   params: {fast: 9, slow: 21, volume_mult: 1.5}

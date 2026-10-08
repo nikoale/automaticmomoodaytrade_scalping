@@ -1,9 +1,10 @@
-# ===== 米国株版 (moomoo の模擬口座 simulate が使える) =====
-mode: simulate
+# ===== 米国株 (通常取引 9:30〜16:00 ET) =====
+# mode: paper (練習) / simulate (moomoo 模擬口座) / live (実口座。--confirm-live が必要)
+mode: paper
 symbols: [US.AAPL, US.NVDA]
 bar_minutes: 1
 moomoo:
-  security_firm: FUTUJP     # moomoo証券(日本) の口座で米国株を取引
+  security_firm: FUTUJP     # moomoo証券(日本) の口座
   trd_market: US
 session:
   timezone: America/New_York

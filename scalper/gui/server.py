@@ -29,10 +29,8 @@ STATIC = Path(__file__).resolve().parent / "static"
 SETTINGS_FILE = ROOT / "config" / "gui_settings.json"
 
 PRESETS = {
-    "us": {"label": "米国株（通常取引 22:30〜翌5:00）", "file": "config/config.us.example.yaml"},
-    "us_ext": {"label": "米国株（時間外込み・ほぼ24時間）", "file": "config/config.us.ext.example.yaml"},
-    "crypto": {"label": "暗号資産（24時間・paperのみ）", "file": "config/config.crypto.example.yaml"},
-    "jp": {"label": "日本株（9:00〜15:30）", "file": "config/config.example.yaml"},
+    "us": {"label": "通常取引のみ（日本時間 22:30〜翌5:00 ※冬は+1時間）", "file": "config/config.us.example.yaml"},
+    "us_ext": {"label": "時間外も含む（プレ・アフター・オーバーナイト）", "file": "config/config.us.ext.example.yaml"},
 }
 
 STRATEGY_INFO = {
@@ -95,6 +93,8 @@ def build_config(s: dict) -> Config:
     mode = s.get("mode") or "paper"
     if mode not in ("paper", "simulate"):
         raise ValueError("GUI では paper / simulate のみ使えます (実口座はコマンドの --confirm-live で)")
+    if mode == "simulate" and cfg.session.us_session.upper() != "RTH":
+        raise ValueError("時間外取引は paper のみ対応です (moomoo 模擬口座での時間外注文は未検証)")
     cfg.mode = mode
     cfg.validate()
     return cfg
@@ -108,8 +108,9 @@ def preset_defaults() -> dict:
             "label": p["label"], "symbols": ", ".join(cfg.symbols), "strategy": cfg.strategy.name,
             "account_size": cfg.risk.account_size, "risk_pct": round(cfg.risk.risk_per_trade * 100, 3),
             "max_daily_loss": cfg.risk.max_daily_loss, "max_position_value": cfg.risk.max_position_value,
-            "currency": "円" if cfg.market == "JP" else "USD", "market": cfg.market,
-            "simulate_ok": cfg.market == "US", "auto_count": cfg.auto_symbols.count,
+            "currency": "USD", "auto_count": cfg.auto_symbols.count,
+            # 時間外の注文は moomoo 模擬口座で未検証なので paper のみ
+            "simulate_ok": cfg.session.us_session.upper() == "RTH",
         }
     return out
 
@@ -187,7 +188,7 @@ class App:
     def symbols(self, s: dict, query: str) -> dict:
         from ..tools import search_symbols
         cfg = build_config(s)
-        rows, total = search_symbols(cfg, None, query, 100)
+        rows, total = search_symbols(cfg, query, 100)
         return {"ok": True, "rows": rows, "total": total}
 
     def screen(self, s: dict) -> dict:
@@ -212,10 +213,8 @@ class App:
                 data[code] = fetch_history(cfg, code, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"),
                                            cfg.bar_minutes)
         else:
-            market = "JP" if cfg.market == "JP" else "US"
-            price = {"JP": 3000.0, "US": 150.0, "CC": 60000.0}[cfg.market]
             for i, code in enumerate(cfg.symbols):
-                data[code] = generate_sample(days=days, start_price=price, market=market, seed=42 + i)
+                data[code] = generate_sample(days=days, seed=42 + i)
         res = run_backtest(cfg, data)
         st = res.stats()
         if st["profit_factor"] == float("inf"):

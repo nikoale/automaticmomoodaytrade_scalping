@@ -57,10 +57,7 @@ class RiskManager:
         return True, ""
 
     def position_size(self, price: float, stop_distance: float, lot_size: float | None = None) -> float:
-        """1 トレードの損失が risk_per_trade × 口座 に収まる数量 (売買単位の倍数)。
-
-        株は整数 (100 株単位など)、暗号資産は 0.0001 BTC のような小数単位にも対応。
-        """
+        """1 トレードの損失が risk_per_trade × 口座 に収まる株数 (売買単位の倍数)。"""
         lot = float(lot_size or self.cfg.lot_size)
         if lot <= 0:
             lot = 1.0

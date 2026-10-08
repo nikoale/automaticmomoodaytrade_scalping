@@ -76,16 +76,12 @@ def _merge(bucket: list[Bar], key) -> Bar:
                bucket[-1].close, sum(b.volume for b in bucket))
 
 
-def generate_sample(days: int = 5, start_price: float = 3000.0, market: str = "JP", seed: int = 42,
+def generate_sample(days: int = 5, start_price: float = 150.0, seed: int = 42,
                     start_date: datetime | None = None) -> list[Bar]:
-    """動作確認用の擬似 1 分足 (ランダムウォーク + 日中のトレンド/レンジ局面)。実相場ではない。"""
+    """動作確認用の擬似 1 分足 (米国株の通常取引 9:30〜16:00)。ランダムウォークで実相場ではない。"""
     rng = random.Random(seed)
-    if market.upper() == "JP":
-        sessions = [((9, 0), (11, 30)), ((12, 30), (15, 30))]
-        tick = 1.0
-    else:
-        sessions = [((9, 30), (16, 0))]
-        tick = 0.01
+    sessions = [((9, 30), (16, 0))]
+    tick = 0.01
     day = (start_date or datetime(2026, 1, 5)).replace(hour=0, minute=0, second=0, microsecond=0)
     price = start_price
     bars: list[Bar] = []

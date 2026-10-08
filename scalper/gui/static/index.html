@@ -103,7 +103,7 @@ th { color: var(--muted); font-weight: 600; }
   <div>
     <div class="card">
       <h2>設定</h2>
-      <label>市場</label>
+      <label>取引時間（米国株）</label>
       <select id="preset"></select>
 
       <label>銘柄（カンマ区切り）</label>
@@ -129,7 +129,7 @@ th { color: var(--muted); font-weight: 600; }
         <label><input type="radio" name="mode" value="paper" checked>paper（練習）</label>
         <label><input type="radio" name="mode" value="simulate">moomoo模擬口座</label>
       </div>
-      <div class="hint">paper は本物の相場で模擬売買し、お金は動きません。moomoo模擬口座は米国株のみ。実口座は安全のためGUIからは使えません。</div>
+      <div class="hint">paper は本物の相場で模擬売買し、お金は動きません。moomoo模擬口座は通常取引のみ。実口座は安全のためGUIからは使えません。</div>
 
       <div class="row">
         <div><label>運用資金 <span class="cur"></span></label><input id="account_size" type="number" step="any"></div>
@@ -239,7 +239,7 @@ th { color: var(--muted); font-weight: 600; }
 <!-- 銘柄検索 -->
 <div id="searchModal" class="modal"><div class="card">
   <h2>銘柄検索</h2>
-  <div class="row"><input id="searchQ" placeholder="例: BTC / AAPL / トヨタ" style="flex:3"><button id="btnDoSearch">検索</button></div>
+  <div class="row"><input id="searchQ" placeholder="例: NVDA / Apple" style="flex:3"><button id="btnDoSearch">検索</button></div>
   <div class="hint">クリックで銘柄リストに追加します（OpenD が必要）。</div>
   <div id="searchOut" style="margin-top:8px"></div>
   <button class="big" onclick="closeModal('searchModal')">閉じる</button>

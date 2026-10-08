@@ -33,8 +33,7 @@ def run_check(cfg: Config, out: Callable[[str], None]) -> bool:
 
         ret, info = ctx.get_user_info()
         if ret == mm.RET_OK and isinstance(info, dict):
-            names = {"us_qot_right": "米国株", "jp_stock_qot_right": "日本株", "cc_qot_right": "暗号資産"}
-            out("[相場権限] " + "  ".join(f"{v}={info.get(k)}" for k, v in names.items()))
+            out(f"[相場権限] 米国株={info.get('us_qot_right')}")
 
         ret, snap = ctx.get_market_snapshot(cfg.symbols)
         if ret != mm.RET_OK:
@@ -77,15 +76,12 @@ def run_check(cfg: Config, out: Callable[[str], None]) -> bool:
         ctx.close()
 
 
-def search_symbols(cfg: Config, market: str | None = None, query: str | None = None,
-                   limit: int = 50) -> tuple[list[dict], int]:
-    """moomoo の銘柄一覧から検索する (暗号資産のコード確認用)。"""
+def search_symbols(cfg: Config, query: str | None = None, limit: int = 50) -> tuple[list[dict], int]:
+    """moomoo の米国株一覧からコード・名前で検索する。"""
     mm = _mm()
-    market = (market or cfg.market).upper()
-    stype = mm.SecurityType.CRYPTO if market == "CC" else mm.SecurityType.STOCK
     ctx = mm.OpenQuoteContext(host=cfg.moomoo.host, port=cfg.moomoo.port)
     try:
-        ret, df = ctx.get_stock_basicinfo(getattr(mm.Market, market), stype)
+        ret, df = ctx.get_stock_basicinfo(mm.Market.US, mm.SecurityType.STOCK)
         if ret != mm.RET_OK:
             raise RuntimeError(f"get_stock_basicinfo 失敗: {df}")
         if query:

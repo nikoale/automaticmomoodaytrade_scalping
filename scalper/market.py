@@ -1,40 +1,14 @@
-"""市場ごとのルール: 呼値 (ティックサイズ) と取引時間。"""
+"""米国株の市場ルール: 呼値 (ティックサイズ) と取引時間。"""
 from __future__ import annotations
 
-import math
 from datetime import date, datetime, time, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 
-# 東証 呼値テーブル (上限価格, 呼値)
-_JP_STANDARD = [
-    (3_000, 1), (5_000, 5), (30_000, 10), (50_000, 50), (300_000, 100),
-    (500_000, 500), (3_000_000, 1_000), (5_000_000, 5_000), (30_000_000, 10_000),
-    (50_000_000, 50_000), (float("inf"), 100_000),
-]
-# TOPIX500 構成銘柄 (トヨタ等の大型株) はより細かい呼値
-_JP_TOPIX500 = [
-    (1_000, 0.1), (3_000, 0.5), (10_000, 1), (30_000, 5), (100_000, 10),
-    (300_000, 50), (1_000_000, 100), (3_000_000, 500), (10_000_000, 1_000),
-    (30_000_000, 5_000), (float("inf"), 10_000),
-]
-
-
-def tick_size(price: float, market: str, setting="auto") -> float:
-    """価格に対する呼値を返す。setting は "auto" / "standard" / "topix500" / 数値。"""
+def tick_size(price: float, market: str = "US", setting="auto") -> float:
+    """価格に対する呼値。setting が数値ならその値、"auto" なら米国株の刻み (1 ドル以上 0.01 / 未満 0.0001)。"""
     if isinstance(setting, (int, float)) and not isinstance(setting, bool):
         return float(setting)
-    market = market.upper()
-    if market == "JP":
-        table = _JP_TOPIX500 if setting == "topix500" else _JP_STANDARD
-        for upper, tick in table:
-            if price <= upper:
-                return float(tick)
-    if market == "US":
-        return 0.01 if price >= 1.0 else 0.0001
-    if market == "CC" and price > 0:
-        # 暗号資産は銘柄ごとに刻みが違うので価格の 6 桁目を目安にする (BTC 60000 → 0.01)
-        return 10.0 ** (math.floor(math.log10(price)) - 6)
-    return 0.01
+    return 0.01 if price >= 1.0 else 0.0001
 
 
 def round_to_tick(price: float, tick: float, direction: str = "nearest") -> float:
@@ -51,7 +25,7 @@ class TradingSessions:
 
     def __init__(self, sessions: list[tuple[time, time]], no_entry_first_minutes: int = 0,
                  no_entry_last_minutes: int = 0, flatten_before_close_minutes: int = 0,
-                 flatten_at_lunch: bool = True, day_rollover: time = time(0, 0)):
+                 flatten_each_session: bool = True, day_rollover: time = time(0, 0)):
         if not sessions:
             raise ValueError("sessions must not be empty")
         self.day_offset = timedelta(hours=day_rollover.hour, minutes=day_rollover.minute)
@@ -61,13 +35,13 @@ class TradingSessions:
         self.no_entry_first = timedelta(minutes=no_entry_first_minutes)
         self.no_entry_last = timedelta(minutes=no_entry_last_minutes)
         self.flatten_before = timedelta(minutes=flatten_before_close_minutes)
-        self.flatten_at_lunch = flatten_at_lunch
+        self.flatten_each_session = flatten_each_session
 
     @classmethod
     def from_config(cls, sc) -> "TradingSessions":
         h, m = sc.day_rollover.split(":")
         return cls(sc.parsed_sessions(), sc.no_entry_first_minutes, sc.no_entry_last_minutes,
-                   sc.flatten_before_close_minutes, sc.flatten_at_lunch, time(int(h), int(m)))
+                   sc.flatten_before_close_minutes, sc.flatten_each_session, time(int(h), int(m)))
 
     def trading_day(self, t: datetime) -> date:
         """t が属する取引日 (day_rollover 時刻で日付が切り替わる)。"""
@@ -105,7 +79,7 @@ class TradingSessions:
             return True
         idx, _, end = cur
         is_last = idx == len(self.sessions) - 1
-        if is_last or self.flatten_at_lunch:
+        if is_last or self.flatten_each_session:
             return end - t <= self.flatten_before
         return False
 

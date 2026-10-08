@@ -34,16 +34,15 @@ def test_rank_orders_by_score_and_excludes():
 
 def test_amplitude_computed_when_missing_and_no_book_ok():
     cfg = _cfg()
-    r = {"code": "CC.X", "last_price": 100, "high_price": 103, "low_price": 100, "prev_close_price": 100,
+    r = {"code": "US.X", "last_price": 100, "high_price": 103, "low_price": 100, "prev_close_price": 100,
          "turnover": 5e8}
     out = rank([r], cfg)[0]
     assert out["amplitude"] == pytest.approx(3.0) and out["spread_pct"] is None and out["excluded"] is None
 
 
-def test_universe_codes_match_market():
-    for m, codes in UNIVERSE.items():
-        assert all(c.startswith(m + ".") for c in codes)
-        assert len(codes) == len(set(codes))
+def test_universe_is_us_and_unique():
+    assert all(c.startswith("US.") for c in UNIVERSE)
+    assert len(UNIVERSE) == len(set(UNIVERSE))
 
 
 def test_runner_auto_selects_symbols(monkeypatch):
@@ -55,7 +54,7 @@ def test_runner_auto_selects_symbols(monkeypatch):
     cfg.auto_symbols.count = 3
     ctx = m.OpenQuoteContext()
     chosen = select(cfg, ctx, m)
-    assert len(chosen) == 3 and all(c in UNIVERSE["US"] for c in chosen)
+    assert len(chosen) == 3 and all(c in UNIVERSE for c in chosen)
     # LiveRunner.run の流れ (選定 → エンジン作成)
     runner = LiveRunner(cfg)
     runner._connect()

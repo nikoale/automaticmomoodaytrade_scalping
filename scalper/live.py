@@ -135,8 +135,7 @@ class LiveRunner:
             return {}
         out = {}
         for _, row in df.iterrows():
-            if self.cfg.market != "CC":   # 暗号資産は小数単位なので config の lot_size を使う
-                out[row["code"]] = float(row["lot_size"] or 0) or self.cfg.risk.lot_size
+            out[row["code"]] = float(row["lot_size"] or 0) or self.cfg.risk.lot_size
             log.info("%s %s lot=%s last=%s bid=%s ask=%s", row["code"], row.get("name", ""), row["lot_size"],
                      row["last_price"], row.get("bid_price"), row.get("ask_price"))
         return out

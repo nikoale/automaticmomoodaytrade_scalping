@@ -22,7 +22,7 @@ def _setup_logging(level: str, log_dir: str | None = None, name: str = "scalper"
 
 def cmd_sample(a) -> None:
     from .data import generate_sample, save_csv
-    bars = generate_sample(days=a.days, start_price=a.price, market=a.market, seed=a.seed)
+    bars = generate_sample(days=a.days, start_price=a.price, seed=a.seed)
     save_csv(bars, a.out)
     print(f"wrote {len(bars)} bars -> {a.out}  (※ランダム生成の擬似データです)")
 
@@ -38,12 +38,12 @@ def cmd_backtest(a) -> None:
     _setup_logging(a.log_level or "WARNING")
     data = {}
     for item in a.csv:
-        # "JP.7203=data/7203.csv" 形式、またはパスのみ (銘柄は config の先頭)
+        # "US.AAPL=data/aapl.csv" 形式、またはパスのみ (銘柄は config の先頭)
         code, _, path = item.rpartition("=")
         data[code or cfg.symbols[0]] = load_csv(path)
     res = run_backtest(cfg, data)
     print(f"strategy={cfg.strategy.name} params={cfg.strategy.params} bar={cfg.bar_minutes}m")
-    print(format_stats(res.stats(), " 円" if cfg.market == "JP" else " USD"))
+    print(format_stats(res.stats(), " USD"))
     if a.trades_out:
         res.save_trades(a.trades_out)
         print(f"trades -> {a.trades_out}")
@@ -70,7 +70,7 @@ def cmd_check(a) -> None:
 def cmd_symbols(a) -> None:
     from .tools import search_symbols
     cfg = load_config(a.config)
-    rows, total = search_symbols(cfg, a.market, a.grep, a.limit)
+    rows, total = search_symbols(cfg, a.grep, a.limit)
     for r in rows:
         print(f"{r['code']:20} {r['name']}  (lot={r['lot_size']})")
     print(f"-- {total} 件 (表示 {len(rows)} 件)")
@@ -101,8 +101,7 @@ def main(argv=None) -> None:
 
     s = sub.add_parser("sample", help="動作確認用の擬似 1 分足 CSV を生成")
     s.add_argument("--days", type=int, default=20)
-    s.add_argument("--price", type=float, default=3000.0)
-    s.add_argument("--market", default="JP")
+    s.add_argument("--price", type=float, default=150.0)
     s.add_argument("--seed", type=int, default=42)
     s.add_argument("--out", default="data/sample_1m.csv")
     s.set_defaults(func=cmd_sample)
@@ -116,7 +115,7 @@ def main(argv=None) -> None:
 
     f = sub.add_parser("fetch", help="moomoo から過去分足を取得して CSV 保存")
     f.add_argument("-c", "--config", default=None)
-    f.add_argument("--symbol", required=True, help="例: JP.7203 / US.AAPL")
+    f.add_argument("--symbol", required=True, help="例: US.AAPL")
     f.add_argument("--start", required=True, help="YYYY-MM-DD")
     f.add_argument("--end", required=True, help="YYYY-MM-DD")
     f.add_argument("--bar-minutes", type=int, default=1, choices=[1, 3, 5, 15])
@@ -127,9 +126,8 @@ def main(argv=None) -> None:
     c.add_argument("-c", "--config", required=True)
     c.set_defaults(func=cmd_check)
 
-    y = sub.add_parser("symbols", help="銘柄コード一覧 (例: --market CC --grep BTC)")
+    y = sub.add_parser("symbols", help="米国株のコード検索 (例: --grep NVDA)")
     y.add_argument("-c", "--config", required=True)
-    y.add_argument("--market", help="CC / US / JP (省略時は config の trd_market)")
     y.add_argument("--grep", help="コード・名前の部分一致")
     y.add_argument("--limit", type=int, default=50)
     y.set_defaults(func=cmd_symbols)

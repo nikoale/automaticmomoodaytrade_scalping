@@ -16,22 +16,21 @@ MODES = ("backtest", "paper", "simulate", "live")
 class MoomooConfig:
     host: str = "127.0.0.1"
     port: int = 11111
-    security_firm: str = "FUTUJP"        # moomoo証券(日本) は FUTUJP
-    trd_market: str = "JP"               # JP=日本株, US=米国株
-    jp_acc_type: str = "JP_TOKUTEI"      # 日本株の口座区分 (JP_GENERAL / JP_TOKUTEI など)
+    security_firm: str = "FUTUJP"        # moomoo証券(日本) の口座は FUTUJP
+    trd_market: str = "US"               # 米国株のみ対応
     trade_password_env: str = "MOOMOO_TRADE_PASSWORD"  # 取引パスワードは環境変数から読む
     acc_id: int = 0
 
 
 @dataclass
 class SessionConfig:
-    timezone: str = "Asia/Tokyo"
-    # 取引時間帯 (取引所ローカル時刻)。東証は 2024/11 以降 大引け 15:30
-    sessions: list[list[str]] = field(default_factory=lambda: [["09:00", "11:30"], ["12:30", "15:30"]])
+    timezone: str = "America/New_York"
+    # 取引時間帯 (米国東部時間)。終了 <= 開始 のものは日付をまたぐ (例: オーバーナイト 20:00〜04:00)
+    sessions: list[list[str]] = field(default_factory=lambda: [["09:30", "16:00"]])
     no_entry_first_minutes: int = 5        # 寄り直後 N 分は新規エントリーしない
     no_entry_last_minutes: int = 15        # 各セッション終了 N 分前から新規エントリーしない
-    flatten_before_close_minutes: int = 5  # 大引け N 分前に全決済 (オーバーナイトしない)
-    flatten_at_lunch: bool = True          # 前場引けでも決済する (昼休みの持ち越しリスク回避)
+    flatten_before_close_minutes: int = 5  # 引け N 分前に全決済 (オーバーナイトしない)
+    flatten_each_session: bool = True      # 時間帯が複数あるとき、各時間帯の終わりでも決済する
     # 米国株の時間外取引: RTH(通常のみ) / ETH(+プレ・アフター) / ALL(+オーバーナイト) / OVERNIGHT
     us_session: str = "RTH"
     # 「1 日」の区切り時刻。VWAP・ORB・1 日の損失上限がこの時刻でリセットされる。
@@ -64,27 +63,27 @@ class ExitConfig:
 
 @dataclass
 class RiskConfig:
-    account_size: float = 1_000_000.0
+    account_size: float = 10_000.0         # USD
     risk_per_trade: float = 0.003          # 1 トレードの許容損失 (口座比)
-    max_position_value: float = 500_000.0  # 1 ポジションの最大建玉金額
+    max_position_value: float = 5_000.0    # 1 ポジションの最大建玉金額
     max_open_positions: int = 1
-    lot_size: float = 100                  # 売買単位 (日本株=100, 米国株=1, 暗号資産=0.0001 など)
-    max_daily_loss: float = 10_000.0       # 当日損失がこれに達したら当日は停止
+    lot_size: float = 1                    # 売買単位 (米国株は 1 株)
+    max_daily_loss: float = 100.0          # 当日損失がこれに達したら当日は停止
     max_trades_per_day: int = 30
     max_consecutive_losses: int = 4        # 連敗でその日は停止
     cooldown_bars_after_loss: int = 3      # 負けトレード後に休む本数
-    allow_short: bool = False              # 空売り (日本株は信用口座が必要。本ボットでは US のみ対応)
+    allow_short: bool = False              # 空売り (信用口座が必要)
 
 
 @dataclass
 class ExecutionConfig:
-    tick_size: Any = "auto"         # "auto" なら市場ごとの呼値テーブル
+    tick_size: Any = "auto"         # "auto" なら 1 ドル以上 0.01 / 未満 0.0001
     slippage_ticks: float = 1.0     # バックテスト / paper の想定スリッページ
     commission_per_order: float = 0.0
     commission_rate: float = 0.0    # 約定代金に対する手数料率
     limit_offset_ticks: int = 1     # 実発注時、最良気配から何ティック不利側に指値を置くか
     order_timeout_sec: float = 5.0  # この秒数で約定しなければ取消
-    use_market_orders: bool = False # True で成行 (日本株・米国株で挙動が異なるので注意)
+    use_market_orders: bool = False # True で成行 (スリッページに注意)
 
 
 @dataclass
@@ -92,10 +91,10 @@ class AutoSymbolConfig:
     """銘柄の自動選定。enabled なら起動時に候補から上位 count 銘柄を選び symbols を置き換える。"""
     enabled: bool = False
     count: int = 3
-    universe: list[str] = field(default_factory=list)  # 空なら市場ごとの組み込み候補リスト
+    universe: list[str] = field(default_factory=list)  # 空なら組み込みの候補リスト
     min_price: float = 0.0
     max_price: float = 0.0          # 0 = 上限なし
-    min_turnover: float = 0.0       # 当日の売買代金の下限 (その市場の通貨)
+    min_turnover: float = 0.0       # 当日の売買代金の下限 (USD)
     min_amplitude_pct: float = 1.0  # 当日値幅 % の下限
     max_spread_pct: float = 0.1     # スプレッド % の上限 (気配が取れない場合は判定しない)
 
@@ -103,7 +102,7 @@ class AutoSymbolConfig:
 @dataclass
 class Config:
     mode: str = "paper"
-    symbols: list[str] = field(default_factory=lambda: ["JP.7203"])
+    symbols: list[str] = field(default_factory=lambda: ["US.AAPL"])
     bar_minutes: int = 1
     warmup_bars: int = 100          # live 開始時に取得する過去足の本数
     log_dir: str = "logs"
@@ -125,27 +124,17 @@ class Config:
     def validate(self) -> None:
         if self.mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}, got {self.mode!r}")
-        if self.mode == "simulate" and self.market == "JP":
-            raise ValueError(
-                "moomoo OpenAPI は日本株の模擬取引 (SIMULATE) に対応していません。"
-                "日本株で練習する場合は mode: paper を使ってください。"
-            )
-        if self.risk.allow_short and self.market == "JP" and self.mode == "live":
-            raise ValueError("日本株の空売り (信用取引) は本ボットの live モードでは未対応です。")
-        if self.market == "CC" and self.mode not in ("backtest", "paper"):
-            raise ValueError("暗号資産 (CC) は paper / backtest モードのみ対応です "
-                             "(moomoo OpenAPI に暗号資産の模擬口座がなく、実発注は未対応)")
+        if self.market != "US":
+            raise ValueError(f"trd_market={self.market} は未対応です。本ボットは米国株 (US) 専用です")
         if self.session.us_session.upper() not in ("RTH", "ETH", "ALL", "OVERNIGHT"):
             raise ValueError("session.us_session は RTH / ETH / ALL / OVERNIGHT のいずれか")
-        if self.session.us_session.upper() != "RTH" and self.market != "US":
-            raise ValueError("時間外取引 (us_session) は米国株のみ対応です")
         if self.bar_minutes not in (1, 3, 5, 15):
             raise ValueError("bar_minutes は 1/3/5/15 のいずれか")
         if self.auto_symbols.enabled and not 1 <= self.auto_symbols.count <= 20:
             raise ValueError("auto_symbols.count は 1〜20")
         for s in self.symbols + [u.upper() for u in self.auto_symbols.universe]:
             if not s.upper().startswith(self.market + "."):
-                raise ValueError(f"銘柄 {s} は trd_market={self.market} と一致しません (例: {self.market}.7203)")
+                raise ValueError(f"銘柄 {s} は米国株のコードではありません (例: US.AAPL)")
 
 
 def _parse_time(s: str) -> time:

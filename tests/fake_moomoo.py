@@ -13,9 +13,8 @@ def build(fill_mode="full"):
     m = types.ModuleType("moomoo")
     m.RET_OK, m.RET_ERROR = 0, -1
     m.TrdEnv = _E(REAL="REAL", SIMULATE="SIMULATE")
-    m.TrdMarket = _E(JP="JP", US="US")
+    m.TrdMarket = _E(US="US")
     m.SecurityFirm = _E(FUTUJP="FUTUJP")
-    m.SubAccType = _E(JP_TOKUTEI="JP_TOKUTEI", JP_GENERAL="JP_GENERAL")
     m.TrdSide = _E(BUY="BUY", SELL="SELL")
     m.OrderType = _E(NORMAL="NORMAL", MARKET="MARKET")
     m.ModifyOrderOp = _E(CANCEL="CANCEL")
@@ -57,7 +56,7 @@ def build(fill_mode="full"):
             return 0, None
 
         def position_list_query(self, **kw):
-            return 0, pd.DataFrame([{"code": "JP.7203", "qty": 100, "position_side": "LONG"}])
+            return 0, pd.DataFrame([{"code": "US.TEST", "qty": 100, "position_side": "LONG"}])
 
         def accinfo_query(self, **kw):
             return 0, pd.DataFrame([{"cash": 1}])
@@ -124,19 +123,19 @@ def build(fill_mode="full"):
             return 0, {"qot_logined": True, "trd_logined": True, "market_us": "OVERNIGHT"}
 
         def get_user_info(self, *a, **kw):
-            return 0, {"us_qot_right": "LV3", "jp_stock_qot_right": "N/A", "cc_qot_right": "LV1"}
+            return 0, {"us_qot_right": "LV3"}
 
         def get_order_book(self, code, num=10):
             return 0, {"code": code, "Bid": [(99.99, 100, 1, {})], "Ask": [(100.01, 120, 1, {})]}
 
         def get_stock_basicinfo(self, market, stype):
-            return 0, pd.DataFrame([{"code": "CC.BTCUSD", "name": "Bitcoin", "lot_size": 0.0001},
-                                    {"code": "CC.ETHUSD", "name": "Ethereum", "lot_size": 0.001}])
+            return 0, pd.DataFrame([{"code": "US.NVDA", "name": "NVIDIA", "lot_size": 1},
+                                    {"code": "US.AAPL", "name": "Apple", "lot_size": 1}])
 
         def close(self):
             pass
 
-    m.Market = _E(US="US", JP="JP", CC="CC")
-    m.SecurityType = _E(STOCK="STOCK", CRYPTO="CRYPTO")
+    m.Market = _E(US="US")
+    m.SecurityType = _E(STOCK="STOCK")
     m.OpenQuoteContext = QuoteCtx
     return m

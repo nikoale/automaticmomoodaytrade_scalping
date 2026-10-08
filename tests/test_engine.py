@@ -11,13 +11,13 @@ from scalper.risk import RiskManager
 def _engine(signals, cfg=None, **kw):
     cfg = cfg or make_cfg()
     risk = RiskManager(cfg.risk)
-    eng = SymbolEngine("JP.7203", cfg, ScriptedStrategy(signals, **kw), risk, SimBroker(cfg.execution, "JP"))
+    eng = SymbolEngine("US.TEST", cfg, ScriptedStrategy(signals, **kw), risk, SimBroker(cfg.execution, "US"))
     return eng, risk
 
 
 def test_long_hits_target():
     eng, risk = _engine({0: Signal.LONG})
-    # 1000 円リスク / ATR10 → 100 株, stop=990 target=1020
+    # 1000 USD リスク / ATR10 → 100 株, stop=990 target=1020
     for b in bars([1000, (1000, 1021, 999, 1015)]):
         eng.on_bar(b)
     assert len(eng.trades) == 1
@@ -66,11 +66,11 @@ def test_time_stop_and_signal_exit():
 
 def test_flatten_before_close_and_no_entry_outside_session():
     eng, _ = _engine({0: Signal.LONG, 3: Signal.LONG})
-    seq = bars([1000, 1001, 1002], start=datetime(2026, 1, 5, 15, 23))  # 15:23, 15:24, 15:25(=引け5分前)
+    seq = bars([1000, 1001, 1002], start=datetime(2026, 1, 5, 15, 53))  # 15:53, 15:54, 15:55(=引け5分前)
     for b in seq:
         eng.on_bar(b)
     assert eng.trades[-1].reason == "session_end"
-    eng.on_bar(bars([1000], start=datetime(2026, 1, 5, 15, 40))[0])
+    eng.on_bar(bars([1000], start=datetime(2026, 1, 5, 16, 10))[0])
     assert eng.position is None
 
 
@@ -82,7 +82,7 @@ def test_trailing_stop_ratchets():
     for b in bars([1000, (1000, 1050, 1000, 1045)]):
         eng.on_bar(b)
     assert eng.position.stop == 1040   # 最高値 1050 - ATR10
-    eng.on_bar(bars([(1045, 1046, 1039, 1040)], start=datetime(2026, 1, 5, 9, 32))[0])
+    eng.on_bar(bars([(1045, 1046, 1039, 1040)], start=datetime(2026, 1, 5, 10, 2))[0])
     assert eng.trades[0].reason == "stop" and eng.trades[0].pnl == 4000
 
 
@@ -104,7 +104,7 @@ def test_stop_and_target_hints():
 def test_check_price_tick_exit():
     eng, _ = _engine({0: Signal.LONG})
     eng.on_bar(bars([1000])[0])
-    eng.check_price(989, datetime(2026, 1, 5, 9, 30, 30))
+    eng.check_price(989, datetime(2026, 1, 5, 10, 0, 30))
     assert eng.trades[0].reason == "stop"
 
 
@@ -132,10 +132,10 @@ class _FailingBroker(SimBroker):
 def test_failed_exit_is_throttled():
     cfg = make_cfg()
     risk = RiskManager(cfg.risk)
-    broker = _FailingBroker(cfg.execution, "JP")
+    broker = _FailingBroker(cfg.execution, "US")
     eng = SymbolEngine("X", cfg, ScriptedStrategy({0: Signal.LONG}), risk, broker)
     eng.on_bar(bars([1000])[0])
-    t = datetime(2026, 1, 5, 9, 31)
+    t = datetime(2026, 1, 5, 10, 1)
     eng.check_price(980, t)
     eng.check_price(980, t.replace(second=5))
     assert broker.calls == 2 and eng.position is not None    # entry + 1 exit 試行のみ

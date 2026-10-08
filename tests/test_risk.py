@@ -7,9 +7,9 @@ from scalper.risk import RiskManager
 def test_position_size_respects_risk_value_and_lot():
     r = RiskManager(RiskConfig(account_size=1_000_000, risk_per_trade=0.003, max_position_value=500_000,
                                lot_size=100, max_daily_loss=10_000))
-    # 許容損失 3000 円 / 損切り幅 10 円 = 300 株
+    # 許容損失 3000 / 損切り幅 10 = 300 株
     assert r.position_size(1000, 10) == 300
-    # 建玉上限 50 万円 / 3000 円 = 166 → 100 株
+    # 建玉上限 50 万 / 株価 3000 = 166 → 100 株単位なら 100
     assert r.position_size(3000, 1) == 100
     # 単位未満は 0
     assert r.position_size(3000, 50) == 0
@@ -42,12 +42,5 @@ def test_size_shrinks_near_daily_limit():
                                lot_size=1, max_daily_loss=5_000, max_consecutive_losses=99))
     r.roll_day(datetime(2026, 1, 5))
     r.on_open("A"); r.on_close("A", -4_000)
-    # 残り許容 1000 円 / 10 円 = 100 株
+    # 残り許容 1000 / 10 = 100 株
     assert r.position_size(1000, 10) == 100
-
-
-def test_fractional_lot_for_crypto():
-    r = RiskManager(RiskConfig(account_size=10_000, risk_per_trade=0.002, max_position_value=2_000,
-                               lot_size=0.0001, max_daily_loss=60))
-    q = r.position_size(60_000, 100)   # 20 ドル / 100 = 0.2, 上限 2000/60000 = 0.0333
-    assert q == 0.0333

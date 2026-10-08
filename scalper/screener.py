@@ -16,9 +16,8 @@ from .config import Config
 
 log = logging.getLogger(__name__)
 
-# 候補リスト (流動性の高い銘柄)。config の auto_symbols.universe で差し替え可
-UNIVERSE = {
-    "US": [
+# 候補リスト (流動性の高い米国株・ETF)。config の auto_symbols.universe で差し替え可
+UNIVERSE = [
         "US.NVDA", "US.TSLA", "US.AAPL", "US.AMD", "US.META", "US.AMZN", "US.MSFT", "US.GOOGL", "US.NFLX",
         "US.AVGO", "US.MU", "US.INTC", "US.SMCI", "US.ARM", "US.TSM", "US.QCOM", "US.MRVL", "US.ORCL",
         "US.PLTR", "US.COIN", "US.MSTR", "US.HOOD", "US.SOFI", "US.MARA", "US.RIOT", "US.UBER", "US.SHOP",
@@ -26,16 +25,7 @@ UNIVERSE = {
         "US.DIS", "US.BA", "US.NKE", "US.SNOW", "US.CRWD", "US.PANW", "US.NET", "US.RBLX", "US.DKNG",
         "US.AFRM", "US.UPST", "US.IONQ", "US.RKLB", "US.SPY", "US.QQQ", "US.IWM", "US.TQQQ", "US.SQQQ",
         "US.SOXL", "US.SOXS", "US.TSLL", "US.NVDL",
-    ],
-    "JP": [
-        "JP.7203", "JP.9984", "JP.8306", "JP.6758", "JP.8035", "JP.6920", "JP.7974", "JP.9983", "JP.6861",
-        "JP.4063", "JP.8058", "JP.8001", "JP.6501", "JP.7267", "JP.6098", "JP.4502", "JP.9432", "JP.9433",
-        "JP.8316", "JP.8411", "JP.7011", "JP.7012", "JP.6146", "JP.6857", "JP.5803", "JP.6723", "JP.6526",
-        "JP.4568", "JP.8766", "JP.6702", "JP.6981", "JP.7741", "JP.3382", "JP.9101", "JP.9104", "JP.5401",
-        "JP.1570", "JP.1357", "JP.1321",
-    ],
-    "CC": [],   # 暗号資産は moomoo の銘柄一覧から自動取得
-}
+]
 
 
 def _f(row: dict, key: str) -> float | None:
@@ -91,13 +81,7 @@ def universe_for(cfg: Config, quote_ctx, mm) -> list[str]:
     a = cfg.auto_symbols
     if a.universe:
         return [c.upper() for c in a.universe]
-    if cfg.market == "CC":
-        ret, df = quote_ctx.get_stock_basicinfo(mm.Market.CC, mm.SecurityType.CRYPTO)
-        if ret != mm.RET_OK:
-            raise RuntimeError(f"暗号資産の銘柄一覧を取得できません: {df}")
-        codes = [c for c in df["code"].tolist() if str(c).upper().endswith("USD")] or df["code"].tolist()
-        return codes[:300]
-    return list(UNIVERSE.get(cfg.market, []))
+    return list(UNIVERSE)
 
 
 def screen(cfg: Config, quote_ctx, mm) -> list[dict]:

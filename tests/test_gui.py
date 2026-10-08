@@ -42,13 +42,13 @@ def test_api_requires_token(gui):
 
 def test_build_config_from_form():
     from scalper.gui.server import build_config
-    cfg = build_config({"preset": "crypto", "symbols": "cc.btcusd、 CC.ETHUSD", "strategy": "orb",
+    cfg = build_config({"preset": "us", "symbols": "us.nvda、 US.AMD", "strategy": "orb",
                         "account_size": "5000", "risk_pct": "0.5", "mode": "paper"})
-    assert cfg.symbols == ["CC.BTCUSD", "CC.ETHUSD"] and cfg.market == "CC"
+    assert cfg.symbols == ["US.NVDA", "US.AMD"] and cfg.market == "US"
     assert cfg.strategy.name == "orb" and cfg.strategy.params == {}
     assert cfg.risk.account_size == 5000 and cfg.risk.risk_per_trade == pytest.approx(0.005)
     with pytest.raises(ValueError):
-        build_config({"preset": "crypto", "mode": "simulate"})
+        build_config({"preset": "us_ext", "mode": "simulate"})     # 時間外は paper のみ
     with pytest.raises(ValueError):
         build_config({"preset": "us", "mode": "live"})
 
@@ -58,8 +58,8 @@ def test_check_symbols_backtest(gui):
     s = {"preset": "us", "symbols": "US.NVDA"}
     _, r = call("/api/check", {"settings": s})
     assert r["ok"] and any("LV3" in line for line in r["lines"])
-    _, r = call("/api/symbols", {"settings": {"preset": "crypto"}, "query": "btc"})
-    assert [x["code"] for x in r["rows"]] == ["CC.BTCUSD"]
+    _, r = call("/api/symbols", {"settings": {"preset": "us"}, "query": "nvidia"})
+    assert [x["code"] for x in r["rows"]] == ["US.NVDA"]
     _, r = call("/api/backtest", {"settings": s, "source": "sample", "days": 3})
     assert r["ok"] and r["stats"]["trades"] == len(r["trades"])
 

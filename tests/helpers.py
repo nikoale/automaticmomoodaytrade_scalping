@@ -46,15 +46,16 @@ def make_cfg(**risk) -> Config:
     cfg.exits.max_hold_bars = 100
     cfg.exits.min_atr_ticks = 0
     cfg.risk.account_size = 1_000_000
-    cfg.risk.risk_per_trade = 0.001     # 1000 円
+    cfg.risk.risk_per_trade = 0.001     # 1000 USD
     cfg.risk.max_position_value = 10_000_000
     cfg.risk.lot_size = 100
+    cfg.risk.max_daily_loss = 1e9
     for k, v in risk.items():
         setattr(cfg.risk, k, v)
     return cfg
 
 
-def bars(prices, start=datetime(2026, 1, 5, 9, 30), spread=1.0):
+def bars(prices, start=datetime(2026, 1, 5, 10, 0), spread=1.0):
     """(open, high, low, close) か close のみのリストから 1 分足を作る。"""
     out = []
     t = start
