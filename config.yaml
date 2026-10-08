@@ -18,6 +18,10 @@ data:
   history_start: "2010-01-01"    # 取得開始日 (10 年以上)
   benchmark: SPY                 # 市場フィルター用の指数 ETF
   earnings_source: yahoo         # yahoo (yfinance) / moomoo (OpenD: get_earnings_calendar ※要確認)
+  # 週次スクリーナーのデータ元:
+  #   moomoo: OpenD の条件選股でサーバー側で絞り、候補だけ日足を取る (Yahoo 不要・取得枠をほとんど使わない)
+  #   free  : Yahoo の日足で全銘柄を自分で計算 (バックテストと同じ方法)
+  screener_source: moomoo
 
 universe:
   # 普通株とみなす名前 (Nasdaq Trader の Security Name にこのどれかを含む)
@@ -78,6 +82,13 @@ backtest:
     "2022年": ["2022-01-01", "2022-12-31"]
   market_cap_proxy: current_shares   # 過去の時価総額 = 現在の発行済株数 × その日の株価 (近似) / none = フィルター無効
   report_dir: reports
+
+moomoo_data:                     # data.screener_source = moomoo のときの設定 (※実機では要確認)
+  page_size: 200                 # get_stock_filter の 1 ページの件数 (SDK の上限 200)
+  filter_interval_sec: 3.5       # get_stock_filter の呼び出し間隔 (頻度制限対策。制限値は要確認)
+  candidates: 40                 # サーバー側で残った銘柄のうち、日足を取って確かめ直す数 (出来高の伸び順)
+  bars_calendar_days: 450        # 日足を取る期間 (200 日線 + 余裕)
+  earnings_lookahead_days: 35    # 決算カレンダーを見る日数 (15 営業日 ≒ 3 週間を必ず含む)
 
 moomoo:                          # フェーズ 3 以降で使用 (発注・日次データ)
   host: 127.0.0.1

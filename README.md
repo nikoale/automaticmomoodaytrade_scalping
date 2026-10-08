@@ -10,7 +10,7 @@
 
 | フェーズ | 部品 | 状態 |
 |---|---|---|
-| 1 | 週次スクリーナー `swing/screener.py` | **実装済み・テスト済み**（手作りデータ）。**実データでは未検証**（開発環境からデータ取得先に接続できなかったため） |
+| 1 | 週次スクリーナー `swing/screener.py`（moomoo 方式 / 無料データ方式） | **実装済み・テスト済み**（手作りデータ・OpenD のフェイク）。**実データ・実機の OpenD では未検証** |
 | 2 | 戦略 `swing/strategy.py` / バックテスト `swing/backtest.py` / レポート `swing/report.py` | **実装済み・テスト済み**（手作りデータ・擬似データ）。**実データでのバックテスト結果は未作成** |
 | 2 | 資金管理 `swing/risk.py`（サイズ・手数料・T+1・週次損失上限） | バックテストで使う部分は実装済み・テスト済み |
 | 3 | 発注 `executor.py`（SIMULATE、証券会社側の逆指値、二重ロック） | **未実装**（フェーズ 2 の結果を見てから着手） |
@@ -56,6 +56,8 @@ python -m pytest -q          # テスト (ネットワーク不要)
 | 時価総額・発行済株数 | Yahoo Finance（`fast_info`） | moomoo `get_market_snapshot` の `total_market_val`（要確認） | 無料 |
 | 決算日（過去・予定） | Yahoo Finance（`get_earnings_dates`） | moomoo `get_earnings_calendar`（要確認） | `data.earnings_source` で切替 |
 
+※ 週次スクリーナーを moomoo 方式（既定）で動かす場合、本番の運用に Yahoo は不要です。上の無料データはバックテスト用です。
+
 ```bash
 python -m swing fetch all            # 初回: 銘柄リスト → 日足 → 時価総額・決算日（数十分〜）
 python -m swing fetch all --limit 50 # 動作確認だけなら先頭 50 銘柄
@@ -66,10 +68,27 @@ Yahoo Finance は非公式 API なので、仕様変更や一時的な取得制�
 
 ## 週次スクリーナー（フェーズ 1）
 
+毎週選び直します。データ元は `config.yaml` の `data.screener_source` で選べます。
+
+| | `moomoo`（既定・本番向け） | `free`（Yahoo） |
+|---|---|---|
+| 方法 | OpenD の条件選股（`get_stock_filter`）で数千銘柄をサーバー側で絞り、残った上位 40 銘柄だけ日足を取って自前の計算で確かめ直す | 全銘柄の日足を取って自前で計算（バックテストと同じ） |
+| 必要なもの | OpenD（ログイン済み） | インターネット（Yahoo Finance） |
+| 過去 K 線の取得枠 | 毎週 約 40 銘柄 + SPY 分だけ | 使わない |
+
 ```bash
-python -m swing screen               # データ更新 → data/watchlists/watchlist_YYYYMMDD.json
-python -m swing screen --no-update   # キャッシュのデータで実行
+python -m swing quota                # moomoo の過去 K 線の取得枠 (使用済み / 残り) を確認
+python -m swing screen               # → data/watchlists/watchlist_YYYYMMDD.json
+python -m swing screen --source free # Yahoo で全銘柄を計算する方式
 ```
+
+moomoo 方式の流れ:
+1. SPY の日足で市場フィルターを確認（200 日線割れなら、ここで空の監視リストを出して終了。候補の日足は取らない）
+2. 6 ヶ月騰落率で全銘柄を並べ、上位 20% の境目の値を求める
+3. 株価 10〜100 ドル・時価総額 3 億ドル以上・20 日平均出来高 50 万株以上・騰落率が境目以上・終値 > 50 日線 > 200 日線 をサーバー側で判定
+4. 普通株一覧（`get_stock_basicinfo`）にない銘柄と、名前が SPAC・ADR などの銘柄を除外し、出来高の伸びの大きい順に 40 銘柄
+5. その 40 銘柄の日足（約 1 年分）を取り、バックテストと同じ `screen_at()` で確かめ直す。決算カレンダー（`get_earnings_calendar`）で 15 営業日以内に決算がある銘柄を除外 → 上位 20
+6. 取った日足は `data/prices/` に保存（日次処理で使う）
 
 - 直近の米国取引日（日本時間 土曜の朝なら金曜）の引けまでのデータで判定
 - 母集団: 普通株 / 株価 10〜100 ドル / 20 日平均出来高 50 万株以上 / 時価総額 3 億ドル以上 / 次回決算が 15 営業日以内なら除外

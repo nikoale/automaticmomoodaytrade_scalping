@@ -3,7 +3,8 @@
   fetch all        銘柄リスト → 日足 (10 年+) → 時価総額・決算日 をまとめて取得 (初回は時間がかかる)
   fetch universe   銘柄リストだけ
   fetch prices     日足だけ (差分更新)
-  screen           週次スクリーナー (データ更新 → watchlist_YYYYMMDD.json)
+  screen           週次スクリーナー (→ data/watchlists/watchlist_YYYYMMDD.json)。--source moomoo / free
+  quota            moomoo の過去 K 線の取得枠を表示
   backtest         バックテスト一式 → reports/<日時>/report.md
   backtest --synthetic   擬似データでレポート作成の流れだけ確認 (成績に意味はない)
 """
@@ -98,7 +99,9 @@ def main(argv=None) -> None:
     f.add_argument("what", choices=["all", "universe", "prices", "meta", "earnings"])
     f.add_argument("--limit", type=int, help="動作確認用: 先頭 N 銘柄だけ")
     s = sub.add_parser("screen")
-    s.add_argument("--no-update", action="store_true", help="データを更新せずキャッシュで実行")
+    s.add_argument("--no-update", action="store_true", help="(free のみ) データを更新せずキャッシュで実行")
+    s.add_argument("--source", choices=["moomoo", "free"], help="config の data.screener_source を上書き")
+    sub.add_parser("quota", help="moomoo の過去 K 線の取得枠 (使用済み / 残り) を表示")
     b = sub.add_parser("backtest")
     b.add_argument("--synthetic", action="store_true")
     a = p.parse_args(argv)
@@ -108,7 +111,14 @@ def main(argv=None) -> None:
         cmd_fetch(cfg, a.what, a.limit)
     elif a.cmd == "screen":
         from .screener import run_weekly
+        if a.source:
+            cfg["data"]["screener_source"] = a.source
         print(run_weekly(cfg, update=not a.no_update))
+    elif a.cmd == "quota":
+        from .moomoo_data import MoomooData
+        with MoomooData(cfg) as m:
+            used, remain = m.quota()
+        print(f"過去 K 線の取得枠: 使用済み {used} / 残り {remain}")
     elif a.cmd == "backtest":
         cmd_backtest(cfg, a.synthetic)
 

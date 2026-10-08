@@ -12,7 +12,8 @@ DEFAULT_PATH = ROOT / "config.yaml"
 REQUIRED = {
     "account": ["capital_jpy", "fx_rate_jpy_per_usd", "fx_cost_pct", "settlement_days"],
     "fees": ["commission_pct", "commission_max_usd", "slippage_pct"],
-    "data": ["dir", "price_source", "history_start", "benchmark", "earnings_source"],
+    "data": ["dir", "price_source", "history_start", "benchmark", "earnings_source", "screener_source"],
+    "moomoo_data": ["page_size", "filter_interval_sec", "candidates", "bars_calendar_days", "earnings_lookahead_days"],
     "universe": ["require_name_patterns", "exclude_adr", "exclude_name_patterns"],
     "screener": ["price_min", "price_max", "avg_volume_days", "avg_volume_min", "market_cap_min_usd",
                  "earnings_exclude_days", "earnings_unknown_policy", "sma_fast", "sma_slow", "momentum_days",
@@ -58,6 +59,8 @@ def load(path: str | Path | None = None, overrides: dict | None = None) -> Confi
             raise ValueError(f"config: [{sec}] に不明なキー {unknown}")
     if data["screener"]["earnings_unknown_policy"] not in ("exclude", "keep"):
         raise ValueError("screener.earnings_unknown_policy は exclude / keep")
+    if data["data"]["screener_source"] not in ("moomoo", "free"):
+        raise ValueError("data.screener_source は moomoo / free")
     if data["backtest"]["market_cap_proxy"] not in ("current_shares", "none"):
         raise ValueError("backtest.market_cap_proxy は current_shares / none")
     return Config(data)

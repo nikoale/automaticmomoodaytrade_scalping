@@ -63,11 +63,14 @@ def _f(x) -> float | None:
 
 
 def screen_at(ind: dict, i: int, cfg, market_cap: dict[str, float] | None = None,
-              earnings: dict[str, list[date]] | None = None, shares: dict[str, float] | None = None) -> ScreenResult:
+              earnings: dict[str, list[date]] | None = None, shares: dict[str, float] | None = None,
+              earnings_calendar: dict[str, list[date]] | None = None) -> ScreenResult:
     """パネル ind の i 行目 (= その日の引け) の時点で監視リストを作る。
 
     market_cap: 銘柄 → 時価総額 (ライブ用: 現在値)。None で shares × 終値 の近似を使う (バックテスト)
     earnings  : 銘柄 → 決算日リスト (過去 + 予定)
+    earnings_calendar: 決算カレンダー (今後 N 日に決算がある銘柄 → 日付)。渡したときは earnings より優先し、
+                       「カレンダーに載っていない = その期間に決算なし」とみなす (moomoo の get_earnings_calendar 用)
     """
     sc = cfg.screener
     idx = ind["close"].index
@@ -105,13 +108,17 @@ def screen_at(ind: dict, i: int, cfg, market_cap: dict[str, float] | None = None
     # 決算日 (候補が絞れてから見る)
     keep, nexts = [], {}
     for s in df.index:
-        nxt, ok = next_earnings((earnings or {}).get(s), d)
+        if earnings_calendar is not None:
+            fut = [x for x in earnings_calendar.get(s, []) if x > d]
+            nxt, ok = (fut[0] if fut else None), True
+        else:
+            nxt, ok = next_earnings((earnings or {}).get(s), d)
         nexts[s] = nxt
         if not ok:
             res.unknown_earnings.append(s)
             if sc["earnings_unknown_policy"] == "exclude":
                 continue
-        elif calendar_us.trading_days_between(d, nxt) <= sc["earnings_exclude_days"]:
+        elif nxt is not None and calendar_us.trading_days_between(d, nxt) <= sc["earnings_exclude_days"]:
             continue
         keep.append(s)
     df = df.loc[keep]
@@ -158,7 +165,92 @@ def log_result(res: ScreenResult) -> None:
 
 
 def run_weekly(cfg, now_jst: datetime | None = None, update: bool = True) -> Path:
-    """ライブの週次実行: データ更新 → スクリーニング → watchlist_YYYYMMDD.json。"""
+    """ライブの週次実行。data.screener_source で moomoo / free を切り替える。"""
+    if cfg.data.screener_source == "moomoo":
+        return run_weekly_moomoo(cfg, now_jst)
+    return run_weekly_free(cfg, now_jst, update)
+
+
+def run_weekly_moomoo(cfg, now_jst: datetime | None = None, client=None) -> Path:
+    """moomoo 版の週次スクリーナー。
+
+    1. 6 ヶ月騰落率の「市場全体の上位 20%」の境目を moomoo で求める
+    2. 株価・時価総額・20 日平均出来高・騰落率・移動平均の条件をサーバー側で判定 (日足の取得枠を使わない想定)
+    3. 普通株以外 (SPAC・ADR など) を名前で除外し、出来高の伸び順に上位 candidates 銘柄だけ日足を取る
+    4. その日足でバックテストと同じ screen_at() にかけて確かめ直し、決算カレンダーで除外 → 上位 20
+    """
+    from datetime import timedelta
+
+    from . import data
+    from .indicators import compute_all
+    from .moomoo_data import MoomooData
+    md = cfg["moomoo_data"]
+    now_jst = now_jst or datetime.now(calendar_us.TOKYO)
+    last = calendar_us.last_completed_session(now_jst)
+    start = (last - timedelta(days=md["bars_calendar_days"])).isoformat()
+    m = client or MoomooData(cfg)
+    try:
+        used, remain = m.quota()
+        log.info("過去 K 線の取得枠: 使用 %d / 残り %d", used, remain)
+        bench = m.daily_bars(cfg.data.benchmark, start, last.isoformat())
+        sma = bench["close"].rolling(cfg.screener["index_sma"]).mean()
+        if cfg.strategy["index_filter"] and not (len(sma) and sma.iloc[-1] == sma.iloc[-1]
+                                                 and bench["close"].iloc[-1] >= sma.iloc[-1]):
+            # 市場フィルター: 候補の日足は取らない (取得枠の節約)
+            res = ScreenResult(date=bench.index[-1].date() if len(bench) else last, index_ok=False,
+                               note=f"市場フィルター: {cfg.data.benchmark} 終値 < {cfg.screener['index_sma']} 日線 (またはデータ不足)。"
+                                    "監視リストを空にして新規停止")
+            log_result(res)
+            return write_watchlist(res, cfg.path("watchlists"), now_jst.date())
+        threshold, total = m.momentum_threshold()
+        server = m.screen_candidates(threshold)
+        stocks = m.common_stocks()
+        names = dict(zip(stocks["code"], stocks["name"]))
+        common = [c for c in server if c["code"] in names and not data.name_excluded(names[c["code"]], cfg)]
+        common.sort(key=lambda c: c["vol_ratio"] or 0, reverse=True)
+        picked = common[: md["candidates"]]
+        if remain < len(picked) + 1:
+            log.warning("取得枠の残り (%d) が候補数より少ないので %d 銘柄に減らします", remain, max(remain - 1, 0))
+            picked = picked[: max(remain - 1, 0)]
+        bars = {}
+        for c in picked:
+            try:
+                bars[c["symbol"]] = m.daily_bars(c["symbol"], start, last.isoformat())
+            except Exception as e:  # noqa: BLE001 - 1 銘柄の失敗で止めない
+                log.warning("日足 %s 取得失敗: %s", c["symbol"], e)
+        cal = m.earnings_calendar(last + timedelta(days=1), last + timedelta(days=md["earnings_lookahead_days"]))
+    finally:
+        if client is None:
+            m.close()
+    # キャッシュに保存 (日次処理でも使う)
+    data.write_prices(cfg, cfg.data.benchmark, bench)
+    for s, df in bars.items():
+        if not df.empty:
+            data.write_prices(cfg, s, df)
+    idx = bench.index
+    panel = {k: pd.DataFrame({s: df[k].reindex(idx) for s, df in bars.items()}, index=idx)
+             for k in ("open", "high", "low", "close", "volume")}
+    # 「市場全体の上位 20%」の判定は moomoo 側で済んでいるので、候補はすべて条件を満たす扱い
+    panel["mom_pct"] = pd.DataFrame(1.0, index=idx, columns=list(bars))
+    panel["bench_close"] = bench["close"]
+    ind = compute_all(panel, cfg)
+    i = int(idx.searchsorted(pd.Timestamp(last), side="right")) - 1
+    if i < 0 or idx[i].date() != last:
+        log.warning("最新の日足が %s ではありません (取得できた最終日: %s)", last, idx[i].date() if i >= 0 else None)
+    mcap = {c["symbol"]: c["market_cap"] for c in picked}
+    res = screen_at(ind, i, cfg, market_cap=mcap, earnings_calendar=cal)
+    res.counts = {"moomoo 条件選股": len(server), "普通株 (名前で除外後)": len(common), "日足で確認": len(bars),
+                  **{f"確認: {k}": v for k, v in res.counts.items() if k != "データあり"}}
+    res.note = (res.note + " " if res.note else "") + \
+        f"6ヶ月騰落率の上位 {cfg.screener['momentum_top_pct']}% の境目 = {threshold:.2f}% (対象 {total} 銘柄)"
+    log_result(res)
+    path = write_watchlist(res, cfg.path("watchlists"), now_jst.date())
+    log.info("監視リストを保存: %s (%d 銘柄)", path, len(res.items))
+    return path
+
+
+def run_weekly_free(cfg, now_jst: datetime | None = None, update: bool = True) -> Path:
+    """無料データ版: Yahoo の日足で全銘柄を自分で計算する (バックテストと同じ方法)。"""
     from . import data
     from .indicators import compute_all
     now_jst = now_jst or datetime.now(calendar_us.TOKYO)

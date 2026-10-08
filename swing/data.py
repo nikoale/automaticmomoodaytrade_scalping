@@ -68,6 +68,17 @@ def parse_symbol_directory(nasdaq_txt: str, other_txt: str, cfg) -> pd.DataFrame
     return out[["symbol", "name", "exchange"]]
 
 
+def name_excluded(name: str, cfg) -> bool:
+    """SPAC・ワラント・優先株・ADR などを名前で除外する (Nasdaq Trader / moomoo の銘柄名どちらにも使う)。"""
+    u = cfg.universe
+    low = str(name).lower()
+    if any(p.lower() in low for p in u["exclude_name_patterns"]):
+        return True
+    if u["exclude_adr"] and any(k in low for k in ("american depositary", " adr", " ads")):
+        return True
+    return False
+
+
 def update_universe(cfg) -> pd.DataFrame:
     nasdaq = _get(NASDAQ_LISTED).decode("utf-8", "replace")
     other = _get(OTHER_LISTED).decode("utf-8", "replace")
