@@ -21,13 +21,14 @@ REQUIRED = {
                  "breakout_days", "atr_days"],
     "strategy": ["breakout_days", "breakout_volume_mult", "max_positions", "reentry_cooldown_days", "atr_days",
                  "initial_stop_atr", "trail_trigger_atr", "trail_sma", "trail_atr", "time_exit_days",
-                 "time_exit_min_gain_atr", "earnings_exit_days_before", "index_filter"],
+                 "time_exit_min_gain_atr", "earnings_exit_days_before", "index_filter", "entry_limit_gap_pct"],
     "risk": ["risk_per_trade_pct", "max_position_pct", "weekly_loss_limit_pct", "allow_fractional"],
     "executor": ["state_dir", "order_timing", "stop_time_in_force", "fill_wait_sec", "poll_sec", "on_stop_failure",
                  "max_orders_per_run", "watchlist_max_age_days", "earnings_refresh_days", "test_symbol"],
     "schedule": ["daily_run", "open_run_delay_min", "open_run_max_late_min", "weekly_screen_day", "weekly_screen_time",
                  "retry_count", "retry_min", "tick_sec", "notify"],
-    "backtest": ["start", "end", "out_of_sample_years", "stress_periods", "market_cap_proxy", "report_dir"],
+    "backtest": ["start", "end", "out_of_sample_years", "stress_periods", "entry_gap_compare", "market_cap_proxy",
+                 "report_dir"],
 }
 
 
@@ -78,6 +79,9 @@ def load(path: str | Path | None = None, overrides: dict | None = None) -> Confi
         raise ValueError("account.capital_source は account / config")
     if data["data"]["screener_source"] not in ("moomoo", "free"):
         raise ValueError("data.screener_source は moomoo / free")
+    g = data["strategy"]["entry_limit_gap_pct"]
+    if g is not None and not (isinstance(g, (int, float)) and 0 <= g <= 20):
+        raise ValueError("strategy.entry_limit_gap_pct は null (成行) か 0〜20 の数値 (%)")
     ex = data["executor"]
     if ex["order_timing"] not in ("reserve", "at_open"):
         raise ValueError("executor.order_timing は reserve / at_open")

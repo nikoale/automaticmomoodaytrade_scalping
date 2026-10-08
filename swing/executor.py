@@ -292,7 +292,10 @@ class Executor:
                     self._open_position(o, dealt, b["dealt_avg_price"], for_date, led)
                 else:
                     self._close_position(o["symbol"], dealt, b["dealt_avg_price"], o["reason"], for_date, led)
-            if dealt + 1e-9 < o["qty"]:
+            if dealt + 1e-9 < o["qty"] and o.get("limit_price") and b["status"] not in UNKNOWN:
+                log.info("[見送り] %s: 寄り付きが上限 %.2f を超えたので買いませんでした (約定 %g 株)", o["symbol"],
+                         o["limit_price"], dealt)
+            elif dealt + 1e-9 < o["qty"]:
                 problems.append(f"{o['symbol']} の{side}注文が{'一部しか' if dealt else ''}約定しませんでした "
                                 f"(約定 {dealt:g} / {o['qty']:g} 株・状態 {b['status']}"
                                 f"{'・' + b['err'] if b['err'] else ''})")
@@ -601,6 +604,9 @@ class Executor:
                                       "name": it.get("name"), "ref_price": round(cl, 4), "est_amount": round(est, 2),
                                       "est_stop": round(stop_est, 2),
                                       "est_risk": round(n * (cl * (1 + slip) - stop_est), 2)})
+            g = sc["entry_limit_gap_pct"]
+            if g is not None:      # 上限付きの指値 (前日終値 × (1 + g%) より高く始まったら約定しない → 見送り)
+                self.st["orders"][-1]["limit_price"] = round(cl * (1 + g / 100.0), 2)
             log.info("[エントリー判定] %s (順位 %d) 終値 %.2f > 20日高値 %.2f・出来高 %.0f → 翌寄り付き (%s) に %d 株",
                      sym, it["rank"], cl, v("high_prev", sym), v("volume", sym), nxt, n)
             free -= 1
@@ -619,8 +625,12 @@ class Executor:
                 if o["kind"] == "exit":
                     self._place_exit(o)
                 else:
-                    r = self._submit(o["remark"], o["symbol"], "BUY",
-                                     lambda: self.broker.market(o["symbol"], "BUY", o["qty"], o["remark"]))
+                    if o.get("limit_price"):
+                        r = self._submit(o["remark"], o["symbol"], "BUY",
+                                         lambda: self.broker.limit(o["symbol"], "BUY", o["qty"], o["limit_price"], o["remark"]))
+                    else:
+                        r = self._submit(o["remark"], o["symbol"], "BUY",
+                                         lambda: self.broker.market(o["symbol"], "BUY", o["qty"], o["remark"]))
                     o["order_id"] = r["order_id"]
             except BrokerError as e:
                 if reserve:
@@ -694,7 +704,7 @@ class Executor:
             if k < polls:
                 self.sleep(self.ex["poll_sec"])
         led = self._ledger()
-        for o in waiting:            # 時間内に約定しなかった → 取り消して停止
+        for o in waiting:            # 時間内に約定しなかった → 取り消す (成行なら停止。上限付きの指値は見送り)
             self.broker.cancel(o["order_id"])
             b = self.broker.order(o["order_id"]) or {"dealt_qty": 0, "dealt_avg_price": None}
             self.st["orders"].remove(o)
@@ -703,11 +713,16 @@ class Executor:
                     self._open_position(o, b["dealt_qty"], b["dealt_avg_price"], d, led)
                 else:
                     self._close_position(o["symbol"], b["dealt_qty"], b["dealt_avg_price"], o["reason"], d, led)
+            if o.get("limit_price") and o["kind"] == "entry":
+                log.info("[見送り] %s: 寄り付きが上限 %.2f を超えたので買いませんでした (約定 %g 株・取消)",
+                         o["symbol"], o["limit_price"], b["dealt_qty"])
         self._save_ledger(led)
         self.save()
         self._try(self.ensure_stops)
-        raise Halted("寄り付き後 %d 秒たっても約定しない注文がありました (%s)。取り消しました"
-                     % (self.ex["fill_wait_sec"], ", ".join(o["symbol"] for o in waiting)))
+        bad = [o for o in waiting if not (o.get("limit_price") and o["kind"] == "entry")]
+        if bad:
+            raise Halted("寄り付き後 %d 秒たっても約定しない注文がありました (%s)。取り消しました"
+                         % (self.ex["fill_wait_sec"], ", ".join(o["symbol"] for o in bad)))
 
     # ---------------------------------------------------------------- まとめ
     def summary(self, d: date) -> dict:

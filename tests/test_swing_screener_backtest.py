@@ -181,3 +181,45 @@ def test_stats_fields():
               "平均保有日数", "現金比率_平均_pct"):
         assert k in s
     assert s["最終資金_usd"] == pytest.approx(res.initial + sum(t.pnl for t in res.trades), rel=1e-6)
+
+
+# ---------------------------------------------------------------- 寄り付きの買い方 (上限付きの指値)
+def test_limit_gap_skips_big_gap_up_and_caps_price():
+    b = 280
+    s = trend_with_breakout(N, b)
+    gap_open = s["close"][b] * 1.05                            # ブレイク翌日に +5% の窓開け
+    s["open"] = np.r_[s["close"][0], s["close"][:-1]]
+    s["open"][b + 1] = gap_open
+    s["close"][b + 1] = max(s["close"][b + 1], gap_open)
+    res_mkt, _ = _bt({"A": dict(s)}, entry_gap_pct=None)
+    e = [d for d in res_mkt.decisions if d["type"] == "entry"][0]
+    assert e["price"] == pytest.approx(gap_open * 1.001, rel=1e-4)          # 成行は窓の上で買う
+    res_lim, _ = _bt({"A": dict(s)}, entry_gap_pct=2.0)
+    assert not [d for d in res_lim.decisions if d["type"] == "entry" and d["date"] == str(DATES[b + 1].date())]
+    assert any("上限 (+2%)" in k for k in res_lim.skipped)
+    res_wide, _ = _bt({"A": dict(s)}, entry_gap_pct=10.0)                    # 上限が広ければ寄り付きで買う
+    e = [d for d in res_wide.decisions if d["type"] == "entry"][0]
+    assert e["price"] == pytest.approx(gap_open * 1.001, rel=1e-4)
+
+
+def test_limit_gap_price_never_above_limit():
+    b = 280
+    s = trend_with_breakout(N, b)
+    s["open"] = np.r_[s["close"][0], s["close"][:-1]]
+    s["open"][b + 1] = s["close"][b] * 1.0095                # +0.95% で寄り付き → スリッページ込みでも +1% が上限
+    res, _ = _bt({"A": s}, entry_gap_pct=1.0)
+    e = [d for d in res.decisions if d["type"] == "entry"][0]
+    assert e["price"] <= s["close"][b] * 1.01 + 1e-4                 # 記録は小数 4 桁に丸めている
+
+
+def test_gap_compare_in_suite_and_report(tmp_path):
+    from swing import report
+    c = cfg(backtest={"start": str(DATES[260].date()), "report_dir": str(tmp_path), "stress_periods": {}, "out_of_sample_years": 0})
+    ind = indicators.compute_all(make_panel({"A": trend_with_breakout(N, 280)}, DATES), c)
+    runs = report.run_suite(c, ind, {}, None)
+    assert {"gap_market", "gap_1", "gap_2", "gap_3"} <= set(runs)
+    out = report.write(c, runs, ind, [], {"source": "test"})
+    import json
+    st = json.loads((out / "stats.json").read_text())
+    assert st["gap_compare"]["gap_market"]["current"] and "gap_2" not in st["stats"]
+    assert "寄り付きの買い方の比較" in (out / "report.md").read_text()

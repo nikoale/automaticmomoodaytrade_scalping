@@ -55,7 +55,17 @@ def run_suite(cfg, ind, earnings, shares) -> dict:
         key = re.sub(r"[^0-9A-Za-z]", "", name) or f"stress{n}"     # 図・ファイル名は英数字だけ
         go(f"{key}_on", s, min(e, end), True, f"{name} (指数フィルターあり)")
         go(f"{key}_off", s, min(e, end), False, f"{name} (指数フィルターなし)")
+    # 寄り付きの買い方の比較 (全期間・指数フィルターあり)。キーは gap_ で始める (主要な表とは別に出す)
+    for g in cfg.backtest["entry_gap_compare"]:
+        label = "成行（上限なし）" if g is None else f"上限 +{g:g}% の指値"
+        log.info("バックテスト: 寄り付きの買い方 = %s", label)
+        runs[gap_key(g)] = backtest.run(cfg, ind, earnings, shares, start=str(start.date()), end=str(end.date()),
+                                        index_filter=True, label=label, record_decisions=False, entry_gap_pct=g)
     return runs
+
+
+def gap_key(g) -> str:
+    return "gap_market" if g is None else "gap_" + f"{g:g}".replace(".", "_")
 
 
 def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path:
@@ -66,7 +76,11 @@ def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path
     out = cfg.report_dir() / datetime.now().strftime("%Y%m%d_%H%M%S")
     out.mkdir(parents=True, exist_ok=True)
     fx = cfg.account["fx_rate_jpy_per_usd"]
+    gap_runs = {k: r for k, r in runs.items() if k.startswith("gap_")}
+    runs = {k: r for k, r in runs.items() if not k.startswith("gap_")}
     st = {k: backtest.stats(r) for k, r in runs.items()}
+    gst = {k: backtest.stats(r) for k, r in gap_runs.items()}
+    cur = gap_key(cfg.strategy["entry_limit_gap_pct"])
 
     # ---- 図
     full_on, full_off = runs["full_on"], runs["full_off"]
@@ -109,8 +123,11 @@ def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path
     for k, r in runs.items():
         backtest.trades_frame(r).to_csv(out / f"trades_{k}.csv", index=False)
     pd.DataFrame(full_on.decisions).to_csv(out / "decisions_full.csv", index=False)
+    for k, r in gap_runs.items():
+        backtest.trades_frame(r).to_csv(out / f"trades_{k}.csv", index=False)
     payload = {"created": datetime.now().isoformat(timespec="seconds"), "data": data_info, "notes": notes,
-               "fx": fx, "labels": {k: r.label for k, r in runs.items()}, "stats": st}
+               "fx": fx, "labels": {k: r.label for k, r in runs.items()}, "stats": st,
+               "gap_compare": {k: {"label": r.label, "current": k == cur, "stats": gst[k]} for k, r in gap_runs.items()}}
     (out / "stats.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
     # ---- Markdown
@@ -145,6 +162,18 @@ def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path
     for y in sorted(set(yr_on) | set(yr_off)):
         L.append(f"| {y} | {_fmt(yr_on.get(y, 0) * fx, 0)} | {_fmt(yr_off.get(y, 0) * fx, 0)} |")
     L.append("")
+    if gap_runs:
+        L.append("## 寄り付きの買い方の比較（全期間・指数フィルターあり）\n")
+        L.append("「上限 +N%」= 前日終値 × (1 + N%) までなら寄り付きで買い、それより高く始まったら見送る。"
+                 f"今の設定: **{gap_runs[cur].label if cur in gap_runs else cur}**\n")
+        L.append("| 買い方 | 総損益 (円) | 年率 (%) | 最大DD (%) | 取引回数 | 勝率 (%) | 損益レシオ | 窓開けで見送り |")
+        L.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+        for k, r in gap_runs.items():
+            s = gst[k]
+            skip = sum(v for kk, v in s.get("見送り", {}).items() if "上限" in kk)
+            L.append(f"| {r.label}{' ←今の設定' if k == cur else ''} | {_fmt(s['総損益_usd'] * fx, 0)} | {_fmt(s['年率リターン_pct'])} | "
+                     f"{_fmt(s['最大ドローダウン_pct'])} | {s['取引回数']} | {_fmt(s['勝率_pct'])} | {_fmt(s['損益レシオ'], 2)} | {skip} |")
+        L.append("")
     L.append("## 手仕舞い理由・見送り（全期間・フィルターあり）\n")
     L.append("- 手仕舞い: " + "、".join(f"{k} {v} 回" for k, v in st["full_on"]["手仕舞い理由"].items()))
     L.append("- 見送り: " + ("、".join(f"{k} {v} 回" for k, v in st["full_on"]["見送り"].items()) or "なし"))

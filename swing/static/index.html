@@ -360,6 +360,14 @@ img.chart { width: 100%; border-radius: 12px; border: 1px solid var(--line); bac
           </div>
           <label>ボットが使う資金</label>
           <select id="capital_source"><option value="account">口座と連動（設定額と口座の総資産の小さい方）</option><option value="config">設定額だけ（口座を見ない）</option></select>
+          <label>寄り付きの買い方</label>
+          <select id="entry_limit_gap_pct">
+            <option value="market">成行（上限なし・指示書どおり）</option>
+            <option value="1">上限 +1% の指値（前日終値より 1% 超高く始まったら見送り）</option>
+            <option value="2">上限 +2% の指値</option>
+            <option value="3">上限 +3% の指値</option>
+          </select>
+          <div class="muted small" style="margin-top:6px">どれが良いかは「バックテスト」の「寄り付きの買い方の比較」で確かめてから選んでください。</div>
           <label>監視リストのデータ元</label>
           <select id="screener_source"><option value="moomoo">moomoo（OpenD・おすすめ）</option><option value="free">無料データ（Yahoo・全銘柄を自分で計算）</option></select>
           <div class="btns" style="margin-top:16px"><button id="btnSave" class="btn primary">設定を保存</button></div>
@@ -525,7 +533,7 @@ $("btnBacktest").onclick = () => {
   job("backtest");
 };
 $("btnBacktestSyn").onclick = () => job("backtest_synthetic");
-const SETTINGS = ["capital_jpy", "fx_rate_jpy_per_usd", "capital_source", "screener_source", "host", "port", "account_env"];
+const SETTINGS = ["capital_jpy", "fx_rate_jpy_per_usd", "capital_source", "entry_limit_gap_pct", "screener_source", "host", "port", "account_env"];
 async function saveSettings() {
   const s = {}; for (const k of SETTINGS) s[k] = $(k).value;
   const r = await api("/api/settings", { settings: s });
@@ -629,7 +637,7 @@ function orderRows(od, full, fx = 150) {
       ? (o.est_stop != null ? `${usd(o.est_stop)}<br><span class="muted small">最大損失 ${usd(o.est_risk)}</span>` : "—")
       : (o.est_pnl != null ? `<span class="${cls(o.est_pnl)}"><b>${sgn(o.est_pnl, usd)}</b></span><br><span class="small ${cls(o.est_pnl)}">${sgn(o.est_pnl * fx, yen)}</span>` : "—");
     return `<tr><td>${sym(o.symbol, o.name)}</td>
-    <td><span class="tag ${o.kind === "entry" ? "acc" : "warn"}">${KIND[o.kind] || o.kind}</span><br><span class="muted small">成行・寄り付き</span></td>
+    <td><span class="tag ${o.kind === "entry" ? "acc" : "warn"}">${KIND[o.kind] || o.kind}</span><br><span class="muted small">${o.limit_price ? `指値 ${usd(o.limit_price)} まで` : "成行・寄り付き"}</span></td>
     <td>${fmt(o.qty, 0)}</td><td>${has ? usd(o.ref_price) + '<br><span class="muted small">前日の終値</span>' : "—"}</td><td>${amt}</td><td>${third}</td>
     <td>${esc(o.for_date)}</td>${full ? `<td>${esc(REASONS[o.reason] || o.reason || (o.kind === "entry" ? "20日高値ブレイク" : ""))}</td>` : ""}
     <td>${o.order_id ? '<span class="tag up">発注済み</span>' : '<span class="tag">寄り付き後に出す</span>'}</td></tr>`;
@@ -761,6 +769,19 @@ function renderReport(rep) {
   h += `<div class="tbl"><table><tr><th>指標</th>${keys.map((k) => `<th>${esc(L[k] || k)}</th>`).join("")}</tr>`;
   for (const [name, fn] of rows) h += `<tr><td>${name}</td>${keys.map((k) => `<td>${S[k] ? fn(S[k]) : "—"}</td>`).join("")}</tr>`;
   h += `</table></div></div>`;
+  const G = rep.gap_compare || {};
+  if (Object.keys(G).length) {
+    const vals = Object.values(G).map((x) => x.stats["総損益_usd"]);
+    const best = Math.max(...vals);
+    h += `<div class="card"><h2>寄り付きの買い方の比較<span class="act muted small">全期間・指数フィルターあり</span></h2>
+      <div class="muted small" style="margin-bottom:10px">「上限 +N%」= 前日終値 × (1 + N%) までなら寄り付きで買い、それより高く始まったら見送る。変えるときは「設定」→「寄り付きの買い方」。</div>
+      <div class="tbl"><table><tr><th>買い方</th><th>総損益</th><th>年率</th><th>最大DD</th><th>取引</th><th>勝率</th><th>損益レシオ</th><th>窓開けで見送り</th></tr>` +
+      Object.values(G).map((x) => { const s = x.stats, skip = Object.entries(s["見送り"] || {}).filter(([k]) => k.includes("上限")).reduce((a, [, v]) => a + v, 0);
+        return `<tr><td><b>${esc(x.label)}</b> ${x.current ? '<span class="tag acc">今の設定</span>' : ""}${s["総損益_usd"] === best ? ' <span class="tag up">いちばん良い</span>' : ""}</td>
+          <td class="${cls(s["総損益_usd"])}">${sgn(s["総損益_usd"] * fx, yen)}</td><td>${pct(s["年率リターン_pct"], 1)}</td><td class="down">${fmt(s["最大ドローダウン_pct"], 1)}%</td>
+          <td>${fmt(s["取引回数"], 0)}</td><td>${fmt(s["勝率_pct"], 1)}%</td><td>${fmt(s["損益レシオ"], 2)}</td><td>${skip ? fmt(skip, 0) + " 回" : "—"}</td></tr>`; }).join("") +
+      `</table></div><div class="muted small" style="margin-top:10px">総損益だけでなく、最大ドローダウン（落ち込み）と取引回数も見て選んでください。差が小さければ、指示書どおりの成行のままで十分です。</div></div>`;
+  }
   if (rep.images && rep.images.length) h += `<div class="card"><h2>グラフ</h2>${rep.images.map((img) => `<img class="chart" loading="lazy" src="/reports/${encodeURIComponent(rep.dir)}/${img}?t=${TOKEN}" alt="${img}">`).join("")}</div>`;
   const off = S.full_off;
   if (on && on["年別損益_usd"]) {

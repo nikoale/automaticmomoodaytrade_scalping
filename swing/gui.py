@@ -31,6 +31,7 @@ SETTINGS_KEYS = {  # 画面で変えられる設定 → config.yaml のどこを
     "fx_rate_jpy_per_usd": ("account", "fx_rate_jpy_per_usd", float),
     "screener_source": ("data", "screener_source", str),
     "capital_source": ("account", "capital_source", str),
+    "entry_limit_gap_pct": ("strategy", "entry_limit_gap_pct", lambda v: None if v in ("market", None) else float(v)),
     "account_env": (None, None, str),            # 口座タブで見る口座 (REAL / SIMULATE)。画面だけの設定
     "host": ("moomoo", "host", str),
     "port": ("moomoo", "port", int),
@@ -403,6 +404,8 @@ class App:
         acc_total = self.account["summary"]["total_assets"]["usd"] if self.account else None
         acc_fx = self.account["fx"] if self.account else None
         settings = {k: cfg[s][key] for k, (s, key, _) in SETTINGS_KEYS.items() if s}
+        g = settings.get("entry_limit_gap_pct")
+        settings["entry_limit_gap_pct"] = "market" if g is None else f"{g:g}"
         settings["account_env"] = self.load_settings().get("account_env", "REAL")
         return {"job": job, "logs": self.logs.since(since), "settings": settings,
                 "account": self.account, "capital": effective_capital(cfg, acc_total, acc_fx),

@@ -66,11 +66,16 @@ def _v(df: pd.DataFrame, i: int, s: str):
 
 def run(cfg, ind: dict, earnings: dict[str, list[date]] | None = None, shares: dict[str, float] | None = None,
         start: str | None = None, end: str | None = None, index_filter: bool | None = None,
-        label: str = "", record_decisions: bool = True) -> Result:
+        label: str = "", record_decisions: bool = True, entry_gap_pct="config") -> Result:
+    """entry_gap_pct: 寄り付きの買い方。"config" = config の strategy.entry_limit_gap_pct / None = 成行 / 数値 = 上限付き指値"""
     st, fees = cfg.strategy, cfg.fees
     if index_filter is not None:
         cfg = _with(cfg, "strategy", "index_filter", bool(index_filter))
         st = cfg.strategy
+    if entry_gap_pct != "config":
+        cfg = _with(cfg, "strategy", "entry_limit_gap_pct", entry_gap_pct)
+        st = cfg.strategy
+    gap = st["entry_limit_gap_pct"]
     earnings = earnings or {}
     dates = ind["close"].index
     i0 = int(dates.searchsorted(pd.Timestamp(start or cfg.backtest["start"])))
@@ -141,6 +146,14 @@ def run(cfg, ind: dict, earnings: dict[str, list[date]] | None = None, shares: d
                 skipped["寄り付きで約定できず"] = skipped.get("寄り付きで約定できず", 0) + 1
                 continue
             px = op * (1 + slip)
+            if gap is not None:                       # 上限付きの指値: 前日終値 × (1 + gap%) より高く始まったら見送る
+                lim = order["ref_close"] * (1 + gap / 100.0)
+                if op > lim:
+                    k_ = f"寄り付きが上限 (+{gap:g}%) を超えて見送り"
+                    skipped[k_] = skipped.get(k_, 0) + 1
+                    note(i, "skip", sym, reason="gap_over_limit", open=round(op, 4), limit=round(lim, 4))
+                    continue
+                px = min(px, lim)
             n = min(order["shares"], risk.position_size(order["equity"], px, order["atr"], cfg, ledger.available(i)))
             if n <= 0:
                 skipped["現金不足 (T+1 受渡待ち含む)"] = skipped.get("現金不足 (T+1 受渡待ち含む)", 0) + 1
@@ -216,7 +229,8 @@ def run(cfg, ind: dict, earnings: dict[str, list[date]] | None = None, shares: d
                     note(i, "skip", sym, reason="size<1 or cash")
                     continue
                 planned += risk.buy_total(n, cl * (1 + slip), cfg)
-                pending_entry.append({"symbol": sym, "shares": n, "atr": a, "equity": equity, "rank": item["rank"]})
+                pending_entry.append({"symbol": sym, "shares": n, "atr": a, "equity": equity, "rank": item["rank"],
+                                      "ref_close": cl})
                 note(i, "entry_signal", sym, close=round(cl, 4), shares=n, rank=item["rank"])
                 free -= 1
 

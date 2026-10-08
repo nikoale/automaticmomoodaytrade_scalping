@@ -411,3 +411,29 @@ def test_orders_carry_price_estimates_for_display(env):
     o = ex.st["orders"][0]
     assert o["ref_price"] > 0 and o["est_amount"] == pytest.approx(o["qty"] * o["ref_price"] * 1.001, rel=0.01)
     assert o["est_stop"] < o["ref_price"] and o["est_risk"] > 0
+
+
+def test_limit_entry_unfilled_is_skipped_without_halt(env):
+    env["strategy"]["entry_limit_gap_pct"] = 2.0
+    br = FakeBroker()
+    ex, clock = make(env, br)
+    ex.run_close()
+    o = ex.st["orders"][0]
+    assert o["limit_price"] == pytest.approx(o["ref_price"] * 1.02, abs=0.01)
+    placed = br.active()[0]
+    assert placed["type"] == "NORMAL" and placed["price"] == o["limit_price"]
+    clock["now"] = OPEN_RUN
+    s = ex.run_open()                                      # 寄り付きが上限を超えて約定しない → 見送り (停止しない)
+    assert not s["halt"]["on"] and not ex.st["orders"] and not ex.st["positions"]
+    assert br.book[placed["order_id"]]["status"] == "CANCELLED_ALL"
+
+
+def test_limit_entry_filled_gets_stop(env):
+    env["strategy"]["entry_limit_gap_pct"] = 2.0
+    br = FakeBroker()
+    ex, clock = make(env, br)
+    ex.run_close()
+    br.fill(br.active()[0]["order_id"], 21.4)
+    clock["now"] = OPEN_RUN
+    s = ex.run_open()
+    assert not s["halt"]["on"] and "AAA" in s["positions"] and br.active("STOP")

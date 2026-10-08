@@ -79,6 +79,11 @@ strategy:
   time_exit_min_gain_atr: 1.0    #   含み益が ATR × 1 未満なら手仕舞い
   earnings_exit_days_before: 2   # 決算日の 2 営業日前に手仕舞い
   index_filter: true             # SPY < 200 日線の日は全手仕舞い & 新規停止
+  # 寄り付きの買い方:
+  #   null = 成行 (指示書どおり)
+  #   数値 = 上限付きの指値。「前日終値 × (1 + N%)」までなら寄り付きで買い、それより高く始まったら見送る
+  #          (大きな窓開けでの高値づかみを避ける代わりに、強く上がる銘柄を逃すことがある)
+  entry_limit_gap_pct: null
 
 risk:
   risk_per_trade_pct: 2.0        # 1 トレードのリスク額 = 口座資金の 2%
@@ -93,6 +98,8 @@ backtest:
   stress_periods:                # 下落局面の個別評価
     "2020年": ["2020-01-01", "2020-12-31"]
     "2022年": ["2022-01-01", "2022-12-31"]
+  # 寄り付きの買い方の比較 (上の entry_limit_gap_pct を変えたときの成績)。null = 成行
+  entry_gap_compare: [null, 1.0, 2.0, 3.0]
   market_cap_proxy: current_shares   # 過去の時価総額 = 現在の発行済株数 × その日の株価 (近似) / none = フィルター無効
   report_dir: ~/moomoo-swing/reports
 
