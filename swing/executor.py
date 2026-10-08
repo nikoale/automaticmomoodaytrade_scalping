@@ -572,6 +572,9 @@ class Executor:
             size_equity = min(equity, f["total_assets"])
         cash = led.available(nxt)
         if f.get("power") is not None:
+            if f["power"] < cash:
+                log.info("証券会社の買付余力 (%.2f ドル) がボットの現金 (%.2f ドル) より少ないので、買付余力の範囲で買います"
+                         "%s", f["power"], cash, "（ドルの買付余力が 0 なら、円からドルへの両替が必要かもしれません）" if f["power"] <= 0 else "")
             cash = min(cash, f["power"])
         slip = cfg.fees["slippage_pct"] / 100.0
         for it in items:
@@ -587,6 +590,14 @@ class Executor:
                 continue
             a, cl = v("atr", sym), v("close", sym)
             n = risk.position_size(size_equity, cl, a, cfg, cash)
+            cap_jpy = self.ex.get("max_order_jpy")
+            if cap_jpy and n > 0:                  # 1 注文の金額の上限 (本番ベータ)
+                from . import fx as fx_mod
+                rate, _ = fx_mod.current(cfg)
+                n_cap = int((cap_jpy / rate) // risk.buy_total(1, cl * (1 + slip), cfg))
+                if n_cap < n:
+                    log.info("[上限] %s: 1 注文の上限 %s 円に合わせて %d 株 → %d 株", sym, f"{cap_jpy:,}", n, n_cap)
+                    n = n_cap
             if n <= 0:
                 log.info("[見送り] %s: 株数が 1 株未満か、受渡済みの現金・買付余力が足りません", sym)
                 continue

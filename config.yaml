@@ -115,7 +115,8 @@ moomoo:                          # フェーズ 3 以降で使用 (発注・日�
   port: 11111
   security_firm: FUTUJP
   acc_id: 0                      # 0 = 米国株の取引権限がある最初の口座
-  trd_env: SIMULATE              # SIMULATE のみ。REAL は allow_real: true と起動時の確認 (コマンドで入力) の二重ロック。画面からは REAL で発注できない
+  trd_env: SIMULATE              # ここは SIMULATE のまま。本番は画面の「本番口座（ベータ）」(許可 + 起動ごとのロック解除)、
+                                 # またはコマンドで trd_env: REAL + allow_real: true + 起動時の確認入力
   allow_real: false
 
 executor:                        # フェーズ 3: 発注・リスク管理 (※実機の模擬口座で要確認)
@@ -132,6 +133,13 @@ executor:                        # フェーズ 3: 発注・リスク管理 (※
   watchlist_max_age_days: 10     # これより古い監視リストでは新規エントリーしない
   earnings_refresh_days: 14      # 毎日、建玉の決算日を決算カレンダーで取り直す日数
   test_symbol: SPY               # 発注機能の確認 (模擬口座) に使う銘柄
+  max_order_jpy: null            # 1 注文の金額の上限 (円)。null = なし。本番ベータでは real_beta.max_order_jpy が入る
+
+real_beta:                       # 本番口座の少額ベータ (画面の「設定」→「本番口座（ベータ）」)
+  capital_jpy: 50000             # 本番で使う資金の上限 (円)。画面で変えられる
+  max_order_jpy: 30000           # 1 注文の金額の上限 (円)。画面で変えられる
+  capital_jpy_hard_max: 200000   # 画面で設定できる本番の資金の最大 (これより大きくはできない)
+  require_simulate_check: true   # 模擬口座で逆指値まで確認できていないと、本番を許可できない
 
 schedule:                        # フェーズ 4: 自動実行 (すべて日本時間。夏時間・冬時間・米国の祝日は自動)
   daily_run: "07:30"             # 引け後の処理。米国の引け (夏 5:00 / 冬 6:00) の後

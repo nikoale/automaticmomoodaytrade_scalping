@@ -74,6 +74,7 @@ class App:
         self.job_lock = threading.Lock()
         self.account: dict | None = None      # 口座の残高 (メモリ上だけ。ファイルには保存しない)
         self.last_check: dict | None = None   # 最後の OpenD 接続チェック
+        self.real_unlocked = False            # 本番口座: この起動中のロック解除 (メモリだけ。起動し直すとロックに戻る)
         from .passwords import PasswordStore
         self.passwords = PasswordStore()
         threading.Thread(target=self._refresh_fx, daemon=True, name="fx").start()   # 今の為替 (裏で 1 回)
@@ -307,12 +308,92 @@ class App:
         out = cmd_backtest(self.cfg(), synthetic)
         return {"dir": out.name}
 
-    def _job_trade(self, what: str) -> dict:
-        from . import executor
+    # ---------------------------------------------------------------- 本番口座 (ベータ)
+    def trade_env(self) -> str:
+        """発注する口座: 許可 + この起動中のロック解除 の両方があれば REAL、なければ SIMULATE。"""
+        from . import realbeta
+        return "REAL" if realbeta.load(self.cfg())["allowed"] and self.real_unlocked else "SIMULATE"
+
+    def trade_cfg(self):
+        from . import realbeta
         cfg = self.cfg()
-        if str(cfg["moomoo"]["trd_env"]).upper() != "SIMULATE":
-            raise RuntimeError("画面からは模擬口座 (SIMULATE) でしか発注しません。config の moomoo.trd_env を確認してください")
-        with executor.Session(cfg) as ex:          # confirm を渡さない → REAL は開けない
+        return realbeta.real_cfg(cfg, realbeta.load(cfg)) if self.trade_env() == "REAL" else cfg
+
+    def real_action(self, action: str, phrase: str = "", capital_jpy=None, max_order_jpy=None) -> dict:
+        from . import realbeta
+        from .passwords import verify
+        if self.running():
+            raise RuntimeError("処理の実行中は切り替えられません。終わってからもう一度")
+        cfg = self.cfg()
+        beta = realbeta.load(cfg)
+        if action in ("allow", "unlock") and phrase.strip() != realbeta.PHRASE:
+            raise ValueError(f"確認の文が違います。「{realbeta.PHRASE}」と入力してください")
+        if action == "settings":
+            beta["capital_jpy"], beta["max_order_jpy"] = realbeta.check_amounts(cfg, capital_jpy, max_order_jpy)
+            if self.real_unlocked:
+                self.real_unlocked = False
+                log.warning("[本番] 金額を変えたので、ロックし直しました (もう一度ロック解除してください)")
+            realbeta.save(cfg, beta)
+        elif action == "allow":
+            pw, _ = self.passwords.get()
+            bad = [r for r in realbeta.preconditions(cfg, bool(pw)) if not r["ok"]]
+            if bad:
+                raise RuntimeError("本番口座を許可する条件がそろっていません: " + " / ".join(r["detail"] for r in bad))
+            beta["capital_jpy"], beta["max_order_jpy"] = realbeta.check_amounts(cfg, capital_jpy or beta["capital_jpy"],
+                                                                                max_order_jpy or beta["max_order_jpy"])
+            beta["allowed"], beta["allowed_at"] = True, datetime.now(calendar_us.TOKYO).isoformat(timespec="seconds")
+            realbeta.save(cfg, beta)
+            log.warning("[本番] 本番口座の少額ベータを許可しました (資金 %s 円・1 注文 %s 円まで)。"
+                        "注文を出すには、この起動中のロック解除も必要です", f"{beta['capital_jpy']:,}", f"{beta['max_order_jpy']:,}")
+        elif action == "unlock":
+            if not beta["allowed"]:
+                raise RuntimeError("先に「本番口座を許可する」をしてください")
+            pw, _ = self.passwords.get()
+            bad = [r for r in realbeta.preconditions(cfg, bool(pw)) if not r["ok"]]
+            if bad:
+                raise RuntimeError("条件がそろっていません: " + " / ".join(r["detail"] for r in bad))
+            ok, msg = verify(cfg, pw)                  # 実際にロック解除できるか (すぐロックし直す。注文はしない)
+            if not ok:
+                raise RuntimeError(msg)
+            self.real_unlocked = True
+            log.warning("[本番] この起動中のロックを解除しました。次の処理から本番口座で発注します (資金 %s 円まで)",
+                        f"{beta['capital_jpy']:,}")
+        elif action == "lock":
+            self.real_unlocked = False
+            log.warning("[本番] ロックしました (本番口座の注文は出しません)")
+        elif action == "disallow":
+            self.real_unlocked = False
+            beta["allowed"] = False
+            realbeta.save(cfg, beta)
+            log.warning("[本番] 本番口座の許可を取り消しました。模擬口座に戻ります")
+        else:
+            raise ValueError(f"不明な操作: {action}")
+        return self.real_status()
+
+    def real_status(self) -> dict:
+        from . import realbeta
+        cfg = self.cfg()
+        beta = realbeta.load(cfg)
+        pw, _ = self.passwords.get()
+        return {**beta, "unlocked": self.real_unlocked, "env": self.trade_env(), "phrase": realbeta.PHRASE,
+                "hard_max": cfg["real_beta"]["capital_jpy_hard_max"], "preconditions": realbeta.preconditions(cfg, bool(pw))}
+
+    def _job_trade(self, what: str) -> dict:
+        from . import executor, realbeta
+        base = self.cfg()
+        if str(base["moomoo"]["trd_env"]).upper() != "SIMULATE":
+            raise RuntimeError("config の moomoo.trd_env が SIMULATE ではないので発注しません。画面からは、config は模擬口座のままにして、"
+                               "本番は「設定」→「本番口座（ベータ）」から切り替えてください")
+        beta = realbeta.load(base)
+        if beta["allowed"] and not self.real_unlocked:
+            raise RuntimeError("本番口座を許可していますが、この起動中のロックがまだ解除されていません。"
+                               "「設定」→「本番口座（ベータ）」でロックを解除してください（模擬口座に戻すなら許可を取り消してください）")
+        env = self.trade_env()
+        if env == "REAL" and what in ("check", "reset"):
+            raise RuntimeError("「発注機能の確認」と「記録のリセット」は模擬口座だけです")
+        cfg = self.trade_cfg()
+        confirm = (lambda: self.real_unlocked and realbeta.load(base)["allowed"]) if env == "REAL" else None
+        with executor.Session(cfg, confirm=confirm, password_store=self.passwords) as ex:
             if what == "close":
                 s = ex.run_close()
             elif what == "open":
@@ -325,19 +406,19 @@ class App:
 
     def trade_resume(self) -> dict:
         from . import executor
-        cfg = self.cfg()
-        st = executor.load_state(cfg, "SIMULATE")
+        cfg, env = self.cfg(), self.trade_env()
+        st = executor.load_state(cfg, env)
         if st["halt"]["on"]:
-            log.warning("[停止解除] 画面から解除しました (理由だったもの: %s)", st["halt"]["reason"])
+            log.warning("[停止解除] 画面から解除しました (%s・理由だったもの: %s)", env, st["halt"]["reason"])
             st["halt"] = {"on": False, "reason": "", "time": None}
-            executor.save_state(cfg, "SIMULATE", st)
+            executor.save_state(cfg, env, st)
         return st["halt"]
 
     def trade_status(self) -> dict:
         from . import executor
-        cfg = self.cfg()
+        cfg = self.trade_cfg()
         try:
-            t = executor.read_summary(cfg, "SIMULATE")
+            t = executor.read_summary(cfg, self.trade_env())
         except Exception as e:  # noqa: BLE001
             return {"error": str(e)}
         now = datetime.now(calendar_us.TOKYO)
@@ -347,7 +428,9 @@ class App:
         o, c = calendar_us.session_times_jst(d)
         t["next_session"] = {"date": d.isoformat(), "open_jst": o.strftime("%m/%d %H:%M"), "close_jst": c.strftime("%m/%d %H:%M"),
                              "in_session": o <= now < c}
-        t["env_config"] = str(cfg["moomoo"]["trd_env"]).upper()
+        t["env_config"] = str(self.cfg()["moomoo"]["trd_env"]).upper()
+        t["trade_env"] = self.trade_env()
+        t["real"] = self.real_status()
         t["order_timing"] = cfg["executor"]["order_timing"]
         from . import fx
         t["fx"], t["fx_source"] = fx.current(cfg)
@@ -488,6 +571,9 @@ def make_handler(app: App):
                 if self.path == "/api/password":
                     return self._json({"ok": True, "password": app.password_action(body.get("action", ""),
                                                                                    body.get("password"))})
+                if self.path == "/api/real":
+                    return self._json({"ok": True, "real": app.real_action(body.get("action", ""), body.get("phrase") or "",
+                                                                          body.get("capital_jpy"), body.get("max_order_jpy"))})
                 if self.path == "/api/auto":
                     return self._json({"ok": True, "on": app.set_auto(bool(body.get("on")))})
                 if self.path == "/api/trade_resume":

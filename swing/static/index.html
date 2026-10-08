@@ -221,6 +221,7 @@ img.chart { width: 100%; border-radius: 12px; border: 1px solid var(--line); bac
     <div class="top">
       <h1 id="pageTitle">ホーム</h1><span id="pageSub" class="sub"></span>
       <span class="grow"></span>
+      <span id="chipEnv" class="chip"><span class="dot"></span><span>模擬口座</span></span>
       <button id="chipConn" class="chip" title="押すと OpenD への接続を確認します"><span id="connDot" class="dot"></span><span id="connText">OpenD 未確認</span></button>
       <button id="chipAuto" class="chip" title="押すとオン / オフ"><span id="autoDot" class="dot"></span><span id="autoText">自動実行 オフ</span></button>
       <span id="chipJob" class="chip"><span id="jobDot" class="dot"></span><span id="jobText">待機中</span></span>
@@ -231,7 +232,7 @@ img.chart { width: 100%; border-radius: 12px; border: 1px solid var(--line); bac
       <div id="homeAlert"></div>
       <div class="grid g-hero">
         <div class="card hero">
-          <div class="lbl">ボットの資金 <span class="tag acc" style="margin-left:6px">模擬口座</span></div>
+          <div class="lbl">ボットの資金 <span id="heroEnv" class="tag acc" style="margin-left:6px">模擬口座</span></div>
           <div id="heroVal" class="val num">—</div>
           <div id="heroDelta" class="num"></div>
           <svg id="heroSpark" class="spark" viewBox="0 0 600 110" preserveAspectRatio="none"></svg>
@@ -390,6 +391,37 @@ img.chart { width: 100%; border-radius: 12px; border: 1px solid var(--line); bac
           <details class="help"><summary>いつ使う？</summary>本番口座のロック解除用です。模擬口座では不要です。「正しいか確認」はロックを解除できるか試してすぐロックし直すだけで、注文はしません。
             本番口座の注文は二重ロックで止めてあり、この画面からは出せません。</details>
         </div>
+        <div class="card" id="realCard" style="grid-column:1/-1">
+          <h2>本番口座（ベータ・少額）<span class="act" id="realBadge"></span></h2>
+          <div class="muted small" style="margin-bottom:12px">本番口座で実際のお金の注文を出すための設定です。<b>二重ロック</b>:
+            ①「本番口座を許可する」（1回）と、②アプリを起動するたびの「ロック解除」の両方がそろったときだけ本番で発注します。</div>
+          <div class="grid g-2">
+            <div>
+              <ul id="realPre" class="steps" style="margin-bottom:12px"></ul>
+              <div class="row">
+                <div><label style="margin-top:0">本番で使う資金の上限（円）</label><input id="realCap" type="number" step="1000" class="num"></div>
+                <div><label style="margin-top:0">1 注文の上限（円）</label><input id="realMax" type="number" step="1000" class="num"></div>
+              </div>
+              <div class="muted small" style="margin-top:6px" id="realCapNote"></div>
+              <div class="btns" style="margin-top:12px"><button id="btnRealSave" class="btn">金額を保存</button></div>
+            </div>
+            <div>
+              <div id="realState" class="kv" style="margin-bottom:14px"></div>
+              <div class="btns">
+                <button id="btnRealAllow" class="btn danger">① 本番口座を許可する</button>
+                <button id="btnRealUnlock" class="btn danger">② この起動中のロックを解除</button>
+              </div>
+              <div class="btns" style="margin-top:10px">
+                <button id="btnRealLock" class="btn">ロックする（本番の注文を止める）</button>
+                <button id="btnRealDisallow" class="btn">許可を取り消して模擬口座に戻す</button>
+              </div>
+              <details class="help"><summary>本番に切り替えると何が変わる？</summary>
+                「引け後の処理」「寄り付き後の処理」（自動実行も）が本番口座で動きます。資金は上の上限まで（口座の総資産の方が少なければそちら）、
+                1 注文は上の上限まで株数を減らします。ボットの記録は模擬口座とは別です。証券会社側の逆指値は必ず入れ、入らなければ成行で売って止まります。
+                ロックしても、すでに入っている逆指値は証券会社に残ります。手で持っている株と同じ銘柄の注文があると、二重発注の疑いとして止まります。</details>
+            </div>
+          </div>
+        </div>
         <div class="card">
           <h2>進み具合</h2>
           <table class="prog">
@@ -397,8 +429,9 @@ img.chart { width: 100%; border-radius: 12px; border: 1px solid var(--line); bac
             <tr><td>2. 戦略・バックテスト</td><td><span class="tag up">完成</span> 実データの結果はまだ</td></tr>
             <tr><td>3. 発注（模擬口座）</td><td><span class="tag warn">確認中</span> 模擬口座での逆指値の確認がまだ</td></tr>
             <tr><td>4. 毎日の自動実行</td><td><span class="tag warn">確認中</span> 実機での長時間運転はまだ</td></tr>
+            <tr><td>5. 本番口座（少額ベータ）</td><td><span class="tag warn">ベータ</span> 二重ロック付き。実際の本番の注文はまだ一度も出していません</td></tr>
           </table>
-          <div class="muted small" style="margin-top:10px">この画面から出せるのは模擬口座の注文だけです。本番口座の注文は、あなたが許可するまで有効にしません。</div>
+          <div class="muted small" style="margin-top:10px">本番口座の注文は、上の「本番口座（ベータ）」で ① 許可 と ② ロック解除 をしたときだけ出します。</div>
         </div>
       </div>
     </section>
@@ -453,7 +486,7 @@ const I = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" str
 const TABS = [
   ["home", "ホーム", I('<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>'), "今日の状態"],
   ["watch", "監視リスト", I('<path d="M4 6h16M4 12h16M4 18h10"/>'), "今週ボットが狙う銘柄"],
-  ["trade", "発注", I('<path d="M4 17l6-6 4 4 6-8"/><path d="M14 7h6v6"/>'), "模擬口座"],
+  ["trade", "発注", I('<path d="M4 17l6-6 4 4 6-8"/><path d="M14 7h6v6"/>'), "ボットの注文と建玉"],
   ["acct", "口座", I('<rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/>'), "moomoo の残高（見るだけ）"],
   ["bt", "バックテスト", I('<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>'), "過去の成績"],
   ["data", "データ", I('<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/>'), "バックテスト用の過去データ"],
@@ -542,6 +575,46 @@ async function saveSettings() {
   poll();
 }
 $("btnSave").onclick = saveSettings;
+async function realAction(action, needPhrase) {
+  const r0 = (last && last.trade && last.trade.real) || {};
+  let phrase = "";
+  if (needPhrase) {
+    const msg = action === "allow"
+      ? `本番口座（実際のお金）での発注を許可します。\n資金の上限 ${yen(+$("realCap").value)}・1 注文 ${yen(+$("realMax").value)}\n\nよければ「${r0.phrase}」と入力してください`
+      : `この起動中、本番口座で発注します（自動実行がオンなら予定の時刻に注文を出します）。\n\nよければ「${r0.phrase}」と入力してください`;
+    phrase = prompt(msg, "");
+    if (phrase === null) return;
+  }
+  if (action === "unlock") toast("取引パスワードでロック解除できるか確かめています…", "run");
+  const r = await api("/api/real", { action, phrase, capital_jpy: +$("realCap").value, max_order_jpy: +$("realMax").value });
+  if (!r.ok) toast(esc(r.error), "err", true);
+  else toast({ allow: "本番口座を許可しました。注文を出すには ② ロック解除も必要です", unlock: "ロックを解除しました。次の処理から本番口座で発注します",
+    lock: "ロックしました（本番の注文は出しません）", disallow: "模擬口座に戻しました", settings: "金額を保存しました" }[action], action === "unlock" || action === "allow" ? "run" : "ok");
+  seen.real = null; poll();
+}
+$("btnRealAllow").onclick = () => realAction("allow", true);
+$("btnRealUnlock").onclick = () => realAction("unlock", true);
+$("btnRealLock").onclick = () => realAction("lock", false);
+$("btnRealDisallow").onclick = () => { if (confirm("本番口座の許可を取り消して、模擬口座に戻しますか？（証券会社に入っている逆指値はそのまま残ります）")) realAction("disallow", false); };
+$("btnRealSave").onclick = () => realAction("settings", false);
+function renderReal(r) {
+  if (!r || !changed("real", r)) return;
+  const live = r.env === "REAL";
+  $("chipEnv").innerHTML = live ? '<span class="dot err"></span><span style="color:var(--down)">本番口座</span>' : (r.allowed ? '<span class="dot run"></span><span>本番: ロック中</span>' : '<span class="dot"></span><span>模擬口座</span>');
+  $("heroEnv").className = "tag " + (live ? "down" : "acc"); $("heroEnv").textContent = live ? "本番口座" : (r.allowed ? "本番: ロック中" : "模擬口座");
+  $("realBadge").innerHTML = live ? '<span class="tag down">本番で発注中</span>' : r.allowed ? '<span class="tag warn">許可済み・ロック中</span>' : '<span class="tag">未許可</span>';
+  $("realPre").innerHTML = (r.preconditions || []).map((p) => `<li class="${p.ok ? "done" : ""}" style="cursor:default"><span class="n">${p.ok ? "✓" : "!"}</span><div><b>${esc(p.name)}</b><small>${esc(p.detail)}</small></div></li>`).join("");
+  if (document.activeElement !== $("realCap")) $("realCap").value = r.capital_jpy;
+  if (document.activeElement !== $("realMax")) $("realMax").value = r.max_order_jpy;
+  $("realCapNote").textContent = `資金の上限は ${fmt(r.hard_max, 0)} 円まで（config の real_beta.capital_jpy_hard_max）。口座の総資産の方が少なければそちらを使います。`;
+  $("realState").innerHTML = kv([["① 許可", r.allowed ? `<span class="tag warn">許可済み</span> <small>${esc((r.allowed_at || "").replace("T", " ").slice(0, 16))}</small>` : '<span class="tag">未許可</span>'],
+    ["② この起動中", r.unlocked ? '<span class="tag down">ロック解除中</span>' : '<span class="tag">ロック中</span>'],
+    ["今の発注先", live ? '<b class="down">本番口座（実際のお金）</b>' : r.allowed ? "なし（ロック解除するまで注文しません）" : "模擬口座"]]);
+  const allPre = (r.preconditions || []).every((p) => p.ok);
+  $("btnRealAllow").disabled = r.allowed || !allPre; $("btnRealUnlock").disabled = !r.allowed || r.unlocked || !allPre;
+  $("btnRealLock").disabled = !r.unlocked; $("btnRealDisallow").disabled = !r.allowed;
+  $("btnTradeCheck").title = live ? "本番口座では使えません（模擬口座だけ）" : "";
+}
 
 /* ---------- 描画 ---------- */
 const BUSY = ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn", "btnAccount", "btnPwVerify", "btnTradeCheck", "btnTradeClose", "btnTradeOpen", "btnTradeReset"];
@@ -698,7 +771,8 @@ function renderTrade(t) {
     k("今週の損失上限", t.week && t.week.tripped ? "達した" : "OK", "資金の 6% まで", t.week && t.week.tripped ? "down" : "up"),
   ].join("");
   $("tradeMeta").innerHTML = kv([
-    ["口座", t.env_config === "SIMULATE" ? '<span class="tag acc">模擬口座（SIMULATE）</span>' : `<span class="tag down">config が ${esc(t.env_config)}（画面からは発注しません）</span>`],
+    ["口座", t.env_config !== "SIMULATE" ? `<span class="tag down">config が ${esc(t.env_config)}（画面からは発注しません）</span>`
+      : t.trade_env === "REAL" ? '<span class="tag down">本番口座（REAL・ベータ）</span>' : (t.real && t.real.allowed ? '<span class="tag warn">本番を許可済み・ロック中（注文しません）</span>' : '<span class="tag acc">模擬口座（SIMULATE）</span>')],
     ["為替", `1ドル = ${fmt(fx, 2)} 円 <small>（${esc(t.fx_source || "")}）</small>`],
     ["受渡待ち", (t.pending_sales || []).length ? t.pending_sales.map((x) => `${esc(x[0])} から ${usd(x[1])}`).join("、") : "なし"],
     ["注文の出し方", t.order_timing === "reserve" ? "引け後の処理で予約（だめなら寄り付き後）" : "寄り付き後の処理で出す"],
@@ -848,7 +922,7 @@ async function poll() {
   last = st;
   $("clock").textContent = "日本時間 " + st.now_jst;
   renderSettings(st.settings); renderJob(st.job); renderConn(st.check); renderAuto(st.auto); renderHome(st);
-  renderWatch(st.watchlist); renderTrade(st.trade); renderAccount(st.account, st.capital); renderPassword(st.password);
+  renderWatch(st.watchlist); renderTrade(st.trade); renderReal(st.trade && st.trade.real); renderAccount(st.account, st.capital); renderPassword(st.password);
   renderData(st.data); renderReport(st.report);
   const lg = $("log"), atBottom = lg.scrollHeight - lg.scrollTop - lg.clientHeight < 40;
   for (const l of st.logs) { const d = document.createElement("div"); d.className = l.level; d.textContent = l.msg; lg.appendChild(d); logSeq = l.id; }
