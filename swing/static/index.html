@@ -63,6 +63,11 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
 .status-table td { text-align: left; white-space: normal; vertical-align: top; }
 .status-table td:first-child { white-space: nowrap; }
 #watchTable td:nth-child(2), #watchTable th:nth-child(2) { text-align: left; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+.kpi .k { font-size: 12px; color: var(--muted); } .kpi .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.kpi .s { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dual { display: block; } .dual small { color: var(--muted); }
 .note { font-size: 12.5px; padding: 8px 10px; border-left: 3px solid var(--warn); background: var(--chip); border-radius: 4px; margin: 6px 0; }
 </style>
 </head>
@@ -89,6 +94,11 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
         <div><label>運用資金（円）</label><input id="capital_jpy" type="number" step="1000"></div>
         <div><label>為替（円/ドル）</label><input id="fx_rate_jpy_per_usd" type="number" step="0.5"></div>
       </div>
+      <label>ボットが使う資金</label>
+      <select id="capital_source">
+        <option value="account">口座と連動（設定額と口座の総資産の小さい方）</option>
+        <option value="config">設定額だけ（口座を見ない）</option>
+      </select>
       <label>監視リストのデータ元</label>
       <select id="screener_source">
         <option value="moomoo">moomoo（OpenD・おすすめ）</option>
@@ -120,6 +130,7 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
     <div id="banner" class="banner"></div>
     <div class="tabs">
       <button data-tab="watch" class="on">今週の監視リスト</button>
+      <button data-tab="acct">口座</button>
       <button data-tab="bt">バックテスト</button>
       <button data-tab="data">データ</button>
       <button data-tab="log">ログ</button>
@@ -134,6 +145,29 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
         <div id="watchFunnel" class="funnel"></div>
         <div id="watchNote"></div>
         <div class="tablewrap"><table id="watchTable"></table></div>
+      </div>
+    </section>
+
+    <section id="tab-acct" style="display:none">
+      <div class="card">
+        <h2>口座（見るだけ・注文はしません）</h2>
+        <div class="row" style="align-items:flex-end">
+          <div><label>見る口座</label>
+            <select id="account_env"><option value="REAL">実口座</option><option value="SIMULATE">模擬口座</option></select></div>
+          <div><button id="btnAccount" class="primary" style="width:100%">口座を読み込む</button></div>
+        </div>
+        <div id="acctMeta" class="hint" style="margin-top:8px"></div>
+      </div>
+      <div id="acctKpis" class="kpis"></div>
+      <div class="card">
+        <h2>ボットが使う資金</h2>
+        <div id="capital" class="kv"></div>
+        <div class="hint">「口座と連動」のときは、設定の運用資金と口座の総資産の小さい方を使います（口座に多くあっても設定額までしか使いません）。
+          実際の注文（フェーズ 3）を作るときに、この金額で株数を計算します。バックテストは過去の検証なので常に設定額です。</div>
+      </div>
+      <div class="card">
+        <h2>保有している米国株</h2>
+        <div class="tablewrap"><table id="posTable"></table></div>
       </div>
     </section>
 
@@ -186,7 +220,7 @@ function banner(msg, kind) { const b = $("banner"); b.className = msg ? "banner 
 
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
-  for (const t of ["watch", "bt", "data", "log"]) $("tab-" + t).style.display = b.dataset.tab === t ? "" : "none";
+  for (const t of ["watch", "acct", "bt", "data", "log"]) $("tab-" + t).style.display = b.dataset.tab === t ? "" : "none";
 });
 
 async function job(name) {
@@ -195,19 +229,24 @@ async function job(name) {
   poll();
 }
 $("btnCheck").onclick = () => job("check");
+$("btnAccount").onclick = () => job("account");
+$("account_env").onchange = async () => { await saveSettings(); };
 $("btnScreen").onclick = () => job("screen");
 $("btnFetch").onclick = () => job("fetch");
 $("btnBacktest").onclick = () => job("backtest");
 $("btnBacktestSyn").onclick = () => job("backtest_synthetic");
-$("btnSave").onclick = async () => {
-  const s = {}; for (const k of ["capital_jpy", "fx_rate_jpy_per_usd", "screener_source", "host", "port"]) s[k] = $(k).value;
+const SETTINGS = ["capital_jpy", "fx_rate_jpy_per_usd", "capital_source", "screener_source", "host", "port", "account_env"];
+async function saveSettings() {
+  const s = {}; for (const k of SETTINGS) s[k] = $(k).value;
   const r = await api("/api/settings", { settings: s });
   $("saveMsg").textContent = r.ok ? "保存しました（次の処理から使います）" : r.error;
-};
+  poll();
+}
+$("btnSave").onclick = saveSettings;
 
 function renderJob(j) {
   const busy = j && j.state === "running";
-  for (const id of ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn"]) $(id).disabled = busy;
+  for (const id of ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn", "btnAccount"]) $(id).disabled = busy;
   const pill = $("jobPill");
   if (!j) { pill.className = "pill"; pill.textContent = "待機中"; return; }
   const m = Math.floor(j.elapsed / 60), s = j.elapsed % 60, t = m ? `${m}分${s}秒` : `${s}秒`;
@@ -221,6 +260,7 @@ function renderJob(j) {
     if (j.state === "done" && j.name === "check" && j.result) renderCheck(j.result);
     if (j.state === "done" && j.name.startsWith("backtest")) document.querySelector('[data-tab=bt]').click();
     if (j.state === "done" && j.name === "screen") document.querySelector('[data-tab=watch]').click();
+    if (j.state === "done" && j.name === "account") document.querySelector('[data-tab=acct]').click();
   }
 }
 function renderCheck(r) {
@@ -285,6 +325,32 @@ function renderReport(rep) {
   $("btResult").innerHTML = h;
 }
 
+const yen = (v) => v === null || v === undefined ? "—" : "¥" + fmt(v, 0);
+const usd = (v) => v === null || v === undefined ? "—" : "$" + fmt(v, 2);
+const sgn = (v, f) => v === null || v === undefined ? "—" : (v > 0 ? "+" : "") + f(v).replace("¥-", "-¥").replace("$-", "-$");
+function renderAccount(a, cap) {
+  const kv = (el, rows) => { el.innerHTML = ""; for (const [k, v] of rows) { const x = document.createElement("div"); x.textContent = k; const y = document.createElement("div"); y.innerHTML = v; el.append(x, y); } };
+  if (cap) kv($("capital"), [
+    ["設定の運用資金", `${yen(cap.config_jpy)} <small>(${usd(cap.config_usd)})</small>`],
+    ["口座の総資産", cap.account_usd === null || cap.account_usd === undefined ? "口座を読み込むと表示" : `${yen(cap.account_jpy)} <small>(${usd(cap.account_usd)})</small>`],
+    ["→ ボットが使う資金", `<b>${yen(cap.jpy)}</b> <small>(${usd(cap.usd)})</small>　${esc(cap.reason)}`]]);
+  if (!a) { $("acctMeta").textContent = "まだ読み込んでいません。OpenD にログインしてから「口座を読み込む」を押してください。"; $("acctKpis").innerHTML = "";
+    $("posTable").innerHTML = `<tr><td class="empty">—</td></tr>`; return; }
+  $("acctMeta").textContent = `${a.env === "REAL" ? "実口座" : "模擬口座"}（口座 ID ${a.acc_id}）・読み込み ${a.time}・為替 1ドル = ${fmt(a.fx, 2)} 円（${a.fx_source}）`;
+  $("acctKpis").innerHTML = Object.values(a.summary).map((x) => {
+    const pl = x.label.includes("損益");
+    const main = pl ? sgn(x.jpy, yen) : yen(x.jpy), sub = pl ? sgn(x.usd, usd) : usd(x.usd);
+    return `<div class="kpi"><div class="k">${esc(x.label)}</div><div class="v ${pl ? cls(x.jpy) : ""}">${main}</div><div class="s">${sub}</div></div>`;
+  }).join("");
+  if (!a.positions.length) { $("posTable").innerHTML = `<tr><td class="empty">米国株の保有はありません</td></tr>`; return; }
+  $("posTable").innerHTML = `<tr><th>銘柄</th><th>名前</th><th>株数</th><th>平均取得単価</th><th>現在値</th><th>評価額</th><th>損益</th><th>損益率</th></tr>` +
+    a.positions.map((p) => `<tr><td><b>${esc(p.code)}</b></td><td style="text-align:left">${esc(p.name || "")}</td><td>${fmt(p.qty, 4)}</td>
+      <td>${usd(p.cost_usd)}</td><td>${usd(p.price_usd)}</td>
+      <td><span class="dual">${yen(p.market_val_jpy)}<br><small>${usd(p.market_val_usd)}</small></span></td>
+      <td class="${cls(p.pl_usd)}"><span class="dual">${sgn(p.pl_jpy, yen)}<br><small>${sgn(p.pl_usd, usd)}</small></span></td>
+      <td class="${cls(p.pl_ratio)}">${p.pl_ratio === null ? "—" : (p.pl_ratio > 0 ? "+" : "") + fmt(p.pl_ratio, 2) + "%"}</td></tr>`).join("");
+}
+
 function renderData(d) {
   $("dataStatus").innerHTML = "";
   const rows = [["銘柄リスト", d.universe ? `${fmt(d.universe, 0)} 銘柄` : "未取得"], ["日足", d.prices ? `${fmt(d.prices, 0)} 銘柄（最終日 ${d.last_date || "—"}）` : "未取得"],
@@ -298,6 +364,7 @@ async function poll() {
   last = st;
   $("clock").textContent = "日本時間 " + st.now_jst;
   renderSettings(st.settings); renderJob(st.job); renderWatch(st.watchlist); renderReport(st.report); renderData(st.data);
+  renderAccount(st.account, st.capital);
   const lg = $("log");
   for (const l of st.logs) { const d = document.createElement("div"); d.className = l.level; d.textContent = l.msg; lg.appendChild(d); logSeq = l.id; }
   while (lg.childNodes.length > 1500) lg.removeChild(lg.firstChild);

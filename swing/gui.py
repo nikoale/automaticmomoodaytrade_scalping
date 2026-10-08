@@ -29,6 +29,8 @@ SETTINGS_KEYS = {  # 画面で変えられる設定 → config.yaml のどこを
     "capital_jpy": ("account", "capital_jpy", int),
     "fx_rate_jpy_per_usd": ("account", "fx_rate_jpy_per_usd", float),
     "screener_source": ("data", "screener_source", str),
+    "capital_source": ("account", "capital_source", str),
+    "account_env": (None, None, str),            # 口座タブで見る口座 (REAL / SIMULATE)。画面だけの設定
     "host": ("moomoo", "host", str),
     "port": ("moomoo", "port", int),
 }
@@ -68,6 +70,7 @@ class App:
             root.setLevel(logging.INFO)
         self.job: dict | None = None
         self.job_lock = threading.Lock()
+        self.account: dict | None = None      # 口座の残高 (メモリ上だけ。ファイルには保存しない)
 
     # ---------------------------------------------------------------- 設定
     def settings_path(self) -> Path:
@@ -86,8 +89,14 @@ class App:
                 clean[k] = conv(s[k])
         if clean.get("screener_source") not in (None, "moomoo", "free"):
             raise ValueError("データ元は moomoo / free")
+        if clean.get("capital_source") not in (None, "account", "config"):
+            raise ValueError("資金の決め方は account / config")
+        if clean.get("account_env") not in (None, "REAL", "SIMULATE"):
+            raise ValueError("口座は REAL / SIMULATE")
         if "capital_jpy" in clean and clean["capital_jpy"] <= 0:
             raise ValueError("資金は正の数で")
+        if clean.get("account_env") != self.load_settings().get("account_env", "REAL"):
+            self.account = None             # 実口座 / 模擬口座 を切り替えたら前の数字は消す
         p = self.settings_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -96,7 +105,7 @@ class App:
     def cfg(self):
         over: dict = {}
         for k, v in self.load_settings().items():
-            if k in SETTINGS_KEYS:
+            if k in SETTINGS_KEYS and SETTINGS_KEYS[k][0]:
                 sec, key, _ = SETTINGS_KEYS[k]
                 over.setdefault(sec, {})[key] = v
         return config_mod.load(self.config_path, over)
@@ -107,6 +116,7 @@ class App:
 
     def start_job(self, name: str) -> dict:
         jobs = {"check": self._job_check, "screen": self._job_screen, "fetch": self._job_fetch,
+                "account": self._job_account,
                 "backtest": lambda: self._job_backtest(False), "backtest_synthetic": lambda: self._job_backtest(True)}
         if name not in jobs:
             return {"ok": False, "error": f"不明な処理: {name}"}
@@ -156,6 +166,13 @@ class App:
                  "OK" if res["qot_logined"] else "NG", "OK" if res["trd_logined"] else "NG",
                  res["us_qot_right"], used, remain)
         return res
+
+    def _job_account(self) -> dict:
+        from .account import AccountReader
+        env = self.load_settings().get("account_env", "REAL")
+        with AccountReader(self.cfg(), env) as r:
+            self.account = r.snapshot()
+        return {"env": env, "positions": len(self.account["positions"])}
 
     def _job_screen(self) -> dict:
         from .screener import run_weekly
@@ -219,13 +236,18 @@ class App:
         if job:
             job["elapsed"] = round((job["finished"] or time.time()) - job["started"])
         cfg = self.cfg()
-        return {"job": job, "logs": self.logs.since(since), "settings": {**{k: cfg[s][key] for k, (s, key, _)
-                                                                            in SETTINGS_KEYS.items()}},
+        from .account import effective_capital
+        acc_total = self.account["summary"]["total_assets"]["usd"] if self.account else None
+        acc_fx = self.account["fx"] if self.account else None
+        settings = {k: cfg[s][key] for k, (s, key, _) in SETTINGS_KEYS.items() if s}
+        settings["account_env"] = self.load_settings().get("account_env", "REAL")
+        return {"job": job, "logs": self.logs.since(since), "settings": settings,
+                "account": self.account, "capital": effective_capital(cfg, acc_total, acc_fx),
                 "data": self.data_status(), "watchlist": self.latest_watchlist(), "report": self.latest_report(),
                 "now_jst": datetime.now(calendar_us.TOKYO).strftime("%Y-%m-%d %H:%M")}
 
 
-JOB_LABELS = {"check": "OpenD 接続チェック", "screen": "今週の監視リスト作成", "fetch": "過去データの取得",
+JOB_LABELS = {"check": "OpenD 接続チェック", "account": "口座の読み込み", "screen": "今週の監視リスト作成", "fetch": "過去データの取得",
               "backtest": "バックテスト", "backtest_synthetic": "バックテスト (擬似データ)"}
 
 

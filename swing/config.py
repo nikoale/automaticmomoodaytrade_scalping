@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PATH = ROOT / "config.yaml"
 
 REQUIRED = {
-    "account": ["capital_jpy", "fx_rate_jpy_per_usd", "fx_cost_pct", "settlement_days"],
+    "account": ["capital_jpy", "fx_rate_jpy_per_usd", "fx_cost_pct", "settlement_days", "capital_source"],
     "fees": ["commission_pct", "commission_max_usd", "slippage_pct"],
     "data": ["dir", "price_source", "history_start", "benchmark", "earnings_source", "screener_source"],
     "moomoo_data": ["page_size", "filter_interval_sec", "candidates", "bars_calendar_days", "earnings_lookahead_days"],
@@ -59,6 +59,8 @@ def load(path: str | Path | None = None, overrides: dict | None = None) -> Confi
             raise ValueError(f"config: [{sec}] に不明なキー {unknown}")
     if data["screener"]["earnings_unknown_policy"] not in ("exclude", "keep"):
         raise ValueError("screener.earnings_unknown_policy は exclude / keep")
+    if data["account"]["capital_source"] not in ("account", "config"):
+        raise ValueError("account.capital_source は account / config")
     if data["data"]["screener_source"] not in ("moomoo", "free"):
         raise ValueError("data.screener_source は moomoo / free")
     if data["backtest"]["market_cap_proxy"] not in ("current_shares", "none"):

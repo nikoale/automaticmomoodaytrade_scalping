@@ -6,6 +6,11 @@ account:
   fx_rate_jpy_per_usd: 150.0     # 円→ドル換算レート (バックテストでは固定。為替変動は考慮しない)
   fx_cost_pct: 0.0               # 両替コスト (片道 %)。0 = 無料と仮定
   settlement_days: 1             # 受渡日数 (米国株 T+1)。売却代金はこの営業日数後から再利用できる
+  # ボットが使う資金:
+  #   account → 「capital_jpy」と「口座の総資産」の小さい方 (口座に多くあっても capital_jpy までしか使わない)
+  #   config  → capital_jpy だけ (口座を見ない)
+  # ※ バックテストは過去の検証なので常に capital_jpy を使う
+  capital_source: account
 
 fees:
   commission_pct: 0.132          # 片道 約定代金 × 0.132% (moomoo証券 ベーシックコース)
@@ -94,6 +99,7 @@ moomoo:                          # フェーズ 3 以降で使用 (発注・日�
   host: 127.0.0.1
   port: 11111
   security_firm: FUTUJP
+  acc_id: 0                      # 0 = 米国株の取引権限がある最初の口座
   trd_env: SIMULATE              # SIMULATE のみ。REAL は allow_real と起動時の確認の二重ロック (フェーズ 3)
   allow_real: false
 
