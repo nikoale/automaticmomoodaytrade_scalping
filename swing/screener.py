@@ -233,10 +233,10 @@ def run_weekly_moomoo(cfg, now_jst: datetime | None = None, client=None) -> Path
         if client is None:
             m.close()
     # キャッシュに保存 (日次処理でも使う)
-    data.write_prices(cfg, cfg.data.benchmark, bench)
+    data.write_prices(cfg, cfg.data.benchmark, bench, kind="live")     # 運用用 (バックテスト用とは分ける)
     for s, df in bars.items():
         if not df.empty:
-            data.write_prices(cfg, s, df)
+            data.write_prices(cfg, s, df, kind="live")
     idx = bench.index
     panel = {k: pd.DataFrame({s: df[k].reindex(idx) for s, df in bars.items()}, index=idx)
              for k in ("open", "high", "low", "close", "volume")}

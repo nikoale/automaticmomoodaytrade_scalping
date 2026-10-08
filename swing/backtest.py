@@ -77,7 +77,9 @@ def run(cfg, ind: dict, earnings: dict[str, list[date]] | None = None, shares: d
     end_ = end or cfg.backtest["end"]
     i1 = int(dates.searchsorted(pd.Timestamp(end_), side="right")) - 1 if end_ else len(dates) - 1
     if i0 > i1:
-        raise ValueError("バックテスト期間にデータがありません")
+        raise ValueError(f"バックテスト期間 ({start or cfg.backtest['start']} 〜 {end_ or '最新'}) にデータがありません。"
+                         f"日足は {dates[0].date()} 〜 {dates[-1].date()} しかありません"
+                         "（「データ」タブで過去データを取得し直してください）")
     o, h, lo, c, v = (ind[k] for k in ("open", "high", "low", "close", "volume"))
     atr, sma_tr, hprev, avprev = ind["atr"], ind["sma_trail"], ind["high_prev"], ind["avg_vol_prev"]
     slip = fees["slippage_pct"] / 100.0

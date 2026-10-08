@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import ssl
 import time
@@ -113,20 +114,42 @@ def yahoo_symbol(sym: str) -> str:
 
 
 # ---------------------------------------------------------------- 日足
-def price_path(cfg, sym: str) -> Path:
-    return cfg.path("prices", f"{sym}.csv")
+# 日足の置き場は 2 つに分ける:
+#   history: バックテスト用 (Yahoo / Stooq の 10 年以上)
+#   live   : 運用用 (moomoo OpenD から週次・日次で取る約 1 年分)
+# 混ぜると、約 1 年分しかない moomoo の日足を「取得済み」と誤認して 10 年分を取らなくなる
+PRICE_DIRS = {"history": "prices", "live": "prices_live"}
+FULL_MARKER = "_full_history.json"      # 開始日から全期間を取り終えた銘柄の記録
 
 
-def read_prices(cfg, sym: str) -> pd.DataFrame | None:
-    p = price_path(cfg, sym)
+def price_path(cfg, sym: str, kind: str = "history") -> Path:
+    return cfg.path(PRICE_DIRS[kind], f"{sym}.csv")
+
+
+def _load_full(cfg) -> dict:
+    p = cfg.path(PRICE_DIRS["history"], FULL_MARKER)
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_full(cfg, full: dict) -> None:
+    p = cfg.path(PRICE_DIRS["history"], FULL_MARKER)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(full, ensure_ascii=False, indent=0, sort_keys=True), encoding="utf-8")
+
+
+def read_prices(cfg, sym: str, kind: str = "history") -> pd.DataFrame | None:
+    p = price_path(cfg, sym, kind)
     if not p.exists():
         return None
     df = pd.read_csv(p, parse_dates=["date"], index_col="date")
     return df[PRICE_COLS]
 
 
-def write_prices(cfg, sym: str, df: pd.DataFrame) -> None:
-    p = price_path(cfg, sym)
+def write_prices(cfg, sym: str, df: pd.DataFrame, kind: str = "history") -> None:
+    p = price_path(cfg, sym, kind)
     p.parent.mkdir(parents=True, exist_ok=True)
     df = df[PRICE_COLS].dropna(subset=["close"])
     df = df[~df.index.duplicated(keep="last")].sort_index()
@@ -173,21 +196,33 @@ def fetch_stooq(sym: str) -> pd.DataFrame:
 
 
 def update_prices(cfg, symbols: list[str], start: str | None = None) -> int:
-    """キャッシュを更新する。既にある銘柄は最終日の 5 日前から取り直して継ぎ足す。"""
+    """キャッシュを更新する。
+
+    開始日から全期間を取り終えた銘柄 (_full_history.json に記録) は、最終日の 7 日前から取り直して継ぎ足す。
+    記録がない銘柄は (途中までしかない可能性があるので) 開始日から全部取り直す。
+    """
     start = start or cfg.data.history_start
+    full = _load_full(cfg)
     todo_full, todo_inc = [], {}
+    start_ts = pd.Timestamp(start)
     for s in symbols:
         old = read_prices(cfg, s)
-        if old is None or old.empty:
+        if old is not None and not old.empty and full.get(s) != start and \
+                old.index.min() <= start_ts + timedelta(days=14):
+            full[s] = start          # 記録はないが開始日から揃っている (以前の版で取得済み) → 取り直さない
+        if old is None or old.empty or full.get(s) != start:
             todo_full.append(s)
         else:
             todo_inc[s] = (old.index.max() - timedelta(days=7)).strftime("%Y-%m-%d")
     n = 0
     if cfg.data.price_source == "yahoo":
-        got = fetch_yahoo(todo_full, start) if todo_full else {}
-        if todo_inc:
-            inc_start = min(todo_inc.values())
-            got.update(fetch_yahoo(list(todo_inc), inc_start))
+        got_full = fetch_yahoo(todo_full, start) if todo_full else {}
+        for s, df in got_full.items():
+            write_prices(cfg, s, df)                 # 全期間で置き換え (途中までのデータは捨てる)
+            full[s] = start
+            n += 1
+        _save_full(cfg, full)
+        got = fetch_yahoo(list(todo_inc), min(todo_inc.values())) if todo_inc else {}
         for s, df in got.items():
             write_prices(cfg, s, _merge(read_prices(cfg, s), df))
             n += 1
@@ -199,9 +234,11 @@ def update_prices(cfg, symbols: list[str], start: str | None = None) -> int:
                 log.warning("Stooq %s 取得失敗: %s", s, e)
                 continue
             if not df.empty:
-                write_prices(cfg, s, _merge(read_prices(cfg, s), df[df.index >= start]))
+                write_prices(cfg, s, df[df.index >= start])        # Stooq は毎回全期間が返る
+                full[s] = start
                 n += 1
             time.sleep(0.3)
+        _save_full(cfg, full)
     log.info("日足を更新: %d 銘柄", n)
     return n
 

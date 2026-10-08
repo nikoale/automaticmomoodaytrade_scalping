@@ -116,3 +116,44 @@ def test_https_uses_certifi_bundle(monkeypatch):
     assert ctx is not None and ctx.verify_mode.name == "CERT_REQUIRED"      # 検証は省略しない
     assert ctx.cert_store_stats()["x509_ca"] > 0
     assert certifi.where()
+
+
+def test_partial_cache_triggers_full_redownload(tmp_path, monkeypatch):
+    """以前の不具合の再現: 週次スクリーナーが約 1 年分の SPY を保存 → 過去データ取得が差分だけになり 15 年分を取らない。"""
+    import sys
+    import types
+    c = cfg(data={"dir": str(tmp_path), "history_start": "2010-01-01"})
+    short_idx = pd.bdate_range("2025-06-01", periods=250)
+    data.write_prices(c, "SPY", pd.DataFrame({"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0},
+                                             index=short_idx))
+    calls = []
+
+    def download(tickers, start=None, **kw):
+        calls.append((sorted(tickers), start))
+        idx = pd.bdate_range(start, periods=300 if start == "2010-01-01" else 5)
+        cols = pd.MultiIndex.from_product([tickers, ["Open", "High", "Low", "Close", "Volume"]])
+        return pd.DataFrame(2.0, index=idx, columns=cols)
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(download=download))
+    data.update_prices(c, ["SPY"])
+    assert calls[0] == (["SPY"], "2010-01-01")                      # 全期間を取り直す
+    assert data.read_prices(c, "SPY").index[0] == pd.Timestamp("2010-01-01")
+    calls.clear()
+    data.update_prices(c, ["SPY"])
+    assert calls and calls[0][1] != "2010-01-01"                     # 2 回目からは差分だけ
+
+
+def test_existing_full_files_are_not_redownloaded(tmp_path, monkeypatch):
+    import sys
+    import types
+    c = cfg(data={"dir": str(tmp_path), "history_start": "2010-01-01"})
+    data.write_prices(c, "AAA", pd.DataFrame({"open": 1.0, "high": 1.0, "low": 1.0, "close": 1.0, "volume": 1.0},
+                                             index=pd.bdate_range("2010-01-04", periods=300)))
+    calls = []
+
+    def download(tickers, start=None, **kw):
+        calls.append(start)
+        cols = pd.MultiIndex.from_product([tickers, ["Open", "High", "Low", "Close", "Volume"]])
+        return pd.DataFrame(2.0, index=pd.bdate_range(start, periods=5), columns=cols)
+    monkeypatch.setitem(sys.modules, "yfinance", types.SimpleNamespace(download=download))
+    data.update_prices(c, ["AAA"])
+    assert calls and calls[0] != "2010-01-01"           # 以前の版で取得済みの全期間データは差分更新だけ

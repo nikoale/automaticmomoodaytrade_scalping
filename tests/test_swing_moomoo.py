@@ -147,7 +147,8 @@ def test_moomoo_weekly_screener_end_to_end(setup):
     assert [x[1] for x in ctx.filter_calls if x[0] > 1] == [0, 3, 6]                               # ページ送り
     # 日次処理用に日足をキャッシュ
     from swing import data
-    assert data.read_prices(c, "GOOD1") is not None and len(data.read_prices(c, "SPY")) == 320
+    assert data.read_prices(c, "GOOD1", kind="live") is not None and len(data.read_prices(c, "SPY", kind="live")) == 320
+    assert data.read_prices(c, "SPY") is None          # バックテスト用のキャッシュには書かない
 
 
 def test_moomoo_screener_market_filter_skips_candidates(setup):
