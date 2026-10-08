@@ -71,6 +71,7 @@ class App:
         self.job: dict | None = None
         self.job_lock = threading.Lock()
         self.account: dict | None = None      # 口座の残高 (メモリ上だけ。ファイルには保存しない)
+        self.last_check: dict | None = None   # 最後の OpenD 接続チェック
         from .passwords import PasswordStore
         self.passwords = PasswordStore()
         threading.Thread(target=self._refresh_fx, daemon=True, name="fx").start()   # 今の為替 (裏で 1 回)
@@ -230,6 +231,8 @@ class App:
                "trd_logined": str(st.get("trd_logined")) in ("1", "True"),
                "market_us": st.get("market_us"), "quota_used": used, "quota_remain": remain,
                "us_qot_right": info.get("us_qot_right")}
+        res["time"] = datetime.now(calendar_us.TOKYO).strftime("%H:%M")
+        self.last_check = res
         log.info("ログイン: 相場=%s 取引=%s / 米国株の相場権限=%s / 過去K線の取得枠: 使用 %d・残り %d",
                  "OK" if res["qot_logined"] else "NG", "OK" if res["trd_logined"] else "NG",
                  res["us_qot_right"], used, remain)
@@ -386,6 +389,7 @@ class App:
         return {"job": job, "logs": self.logs.since(since), "settings": settings,
                 "account": self.account, "capital": effective_capital(cfg, acc_total, acc_fx),
                 "password": self.passwords.status(), "trade": self.trade_status(), "auto": self.auto_status(),
+                "check": self.last_check,
                 "data": self.data_status(), "watchlist": self.latest_watchlist(), "report": self.latest_report(),
                 "now_jst": datetime.now(calendar_us.TOKYO).strftime("%Y-%m-%d %H:%M")}
 
@@ -478,7 +482,28 @@ def make_handler(app: App):
     return Handler
 
 
-def serve(port: int = 8765, open_browser: bool = True, config_path: str | None = None) -> None:
+# ---------------------------------------------------------------- 起動 (1 つだけ)
+def _instance_path(config_path: str | None) -> Path:
+    return config_mod.load(config_path).path("gui_instance.json")
+
+
+def running_instance(config_path: str | None = None) -> str | None:
+    """すでに起動している画面があれば、その URL (2 つ動かすと自動実行が二重になるため)。"""
+    import os
+    import urllib.request
+    try:
+        info = json.loads(_instance_path(config_path).read_text(encoding="utf-8"))
+        os.kill(int(info["pid"]), 0)                         # プロセスが生きているか
+        with urllib.request.urlopen(info["url"], timeout=3) as r:
+            if r.status == 200:
+                return info["url"]
+    except Exception:  # noqa: BLE001 - 古い記録・止まっている → 起動していない扱い
+        return None
+    return None
+
+
+def make_server(port: int = 8765, config_path: str | None = None):
+    import os
     app = App(config_path)
     httpd = None
     for p in range(port, port + 10):
@@ -489,8 +514,29 @@ def serve(port: int = 8765, open_browser: bool = True, config_path: str | None =
         except OSError:
             continue
     if httpd is None:
-        raise SystemExit("GUI 用のポートを確保できませんでした")
+        raise SystemExit("画面用のポートを確保できませんでした")
     url = f"http://127.0.0.1:{port}/"
+    ip = _instance_path(config_path)
+    ip.parent.mkdir(parents=True, exist_ok=True)
+    ip.write_text(json.dumps({"pid": os.getpid(), "url": url}), encoding="utf-8")
+    return app, httpd, url
+
+
+def _forget_instance(config_path: str | None) -> None:
+    try:
+        _instance_path(config_path).unlink()
+    except OSError:
+        pass
+
+
+def serve(port: int = 8765, open_browser: bool = True, config_path: str | None = None) -> None:
+    other = running_instance(config_path)
+    if other:
+        print(f"\n  すでに起動しています → {other} を開きます\n")
+        if open_browser:
+            webbrowser.open(other)
+        return
+    app, httpd, url = make_server(port, config_path)
     print(f"\n  画面を開きました → {url}\n  (このウィンドウを閉じると止まります)\n")
     if open_browser:
         threading.Timer(0.8, lambda: webbrowser.open(url)).start()
@@ -500,3 +546,54 @@ def serve(port: int = 8765, open_browser: bool = True, config_path: str | None =
         pass
     finally:
         httpd.server_close()
+        _forget_instance(config_path)
+
+
+def run_app(config_path: str | None = None) -> None:
+    """Mac アプリ (専用のウィンドウ)。pywebview がなければブラウザで開く。"""
+    import os
+    import subprocess
+    import sys
+    url = running_instance(config_path)
+    httpd = None
+    if url is None:
+        app, httpd, url = make_server(8765, config_path)
+        threading.Thread(target=httpd.serve_forever, daemon=True, name="http").start()
+        if sys.platform == "darwin":               # アプリが動いている間は Mac を眠らせない (電源接続時)
+            try:
+                subprocess.Popen(["caffeinate", "-is", "-w", str(os.getpid())])
+            except OSError:
+                pass
+    try:
+        import webview
+    except ImportError:
+        log.warning("pywebview がないのでブラウザで開きます")
+        webbrowser.open(url)
+        if httpd is not None:
+            try:
+                threading.Event().wait()
+            except KeyboardInterrupt:
+                pass
+        return
+    _set_dock_icon()
+    webview.create_window("米国株スイング bot", url, width=1320, height=880, min_size=(900, 600),
+                          confirm_close=httpd is not None)
+    try:
+        webview.start()
+    finally:
+        if httpd is not None:
+            httpd.shutdown()
+            _forget_instance(config_path)
+
+
+def _set_dock_icon() -> None:
+    """Dock のアイコンをアプリのアイコンにする (Python のロケットのアイコンにならないように)。"""
+    import os
+    icns = os.environ.get("SWING_APP_ICON")
+    if not icns or not os.path.exists(icns):
+        return
+    try:
+        from AppKit import NSApplication, NSImage
+        NSApplication.sharedApplication().setApplicationIconImage_(NSImage.alloc().initWithContentsOfFile_(icns))
+    except Exception:  # noqa: BLE001
+        pass

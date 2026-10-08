@@ -8,3 +8,4 @@ moomoo-api>=9.0          # moomoo OpenD (フェーズ 3 以降の発注・日次
 pytest>=7.0
 keyring>=24.0          # 取引パスワードを Mac のキーチェーンに保存
 certifi>=2023.0        # HTTPS の証明書 (Mac の python.org 版 Python 用)
+pywebview>=5.0; sys_platform == "darwin"   # Mac アプリの専用ウィンドウ

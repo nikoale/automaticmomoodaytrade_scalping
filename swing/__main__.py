@@ -178,6 +178,8 @@ def main(argv=None) -> None:
     s.add_argument("--no-update", action="store_true", help="(free のみ) データを更新せずキャッシュで実行")
     s.add_argument("--source", choices=["moomoo", "free"], help="config の data.screener_source を上書き")
     sub.add_parser("quota", help="moomoo の過去 K 線の取得枠 (使用済み / 残り) を表示")
+    sub.add_parser("app", help="Mac アプリ (専用のウィンドウ)")
+    sub.add_parser("macapp", help="Mac アプリ (~/Applications/米国株スイング bot.app) を作る")
     g = sub.add_parser("gui", help="ブラウザで操作する画面")
     g.add_argument("--port", type=int, default=8765)
     g.add_argument("--no-browser", action="store_true")
@@ -209,6 +211,12 @@ def main(argv=None) -> None:
         run_forever(lambda: config_mod.load(a.config), confirm=confirm_real)
     elif a.cmd == "trade":
         cmd_trade(cfg, a.what, a.yes)
+    elif a.cmd == "app":
+        from .gui import run_app
+        run_app(a.config)
+    elif a.cmd == "macapp":
+        from .macapp import build
+        print(build())
     elif a.cmd == "gui":
         from .gui import serve
         serve(port=a.port, open_browser=not a.no_browser, config_path=a.config)

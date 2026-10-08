@@ -70,37 +70,210 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
 .kpi .s { font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .dual { display: block; } .dual small { color: var(--muted); }
 .note { font-size: 12.5px; padding: 8px 10px; border-left: 3px solid var(--warn); background: var(--chip); border-radius: 4px; margin: 6px 0; }
+
+/* ===== アプリ風レイアウト (左のメニュー + 右の本文) ===== */
+:root { --side: #10213d; --side-ink: #c9d4e8; --side-on: #ffffff; --side-hi: rgba(255,255,255,.10); --radius: 14px; }
+@media (prefers-color-scheme: dark) { :root { --side: #0c1018; --side-ink: #9aa3b5; --side-hi: rgba(255,255,255,.07); } }
+body { font-size: 14px; }
+.app { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100vh; }
+.side { background: var(--side); color: var(--side-ink); padding: 18px 12px; position: sticky; top: 0; height: 100vh;
+  display: flex; flex-direction: column; gap: 4px; }
+.brand { color: var(--side-on); font-weight: 800; font-size: 16px; padding: 4px 10px 16px; letter-spacing: .02em; }
+.brand small { display: block; font-weight: 500; font-size: 11.5px; color: var(--side-ink); margin-top: 2px; }
+.nav button { display: flex; align-items: center; gap: 10px; width: 100%; background: transparent; border: 0; color: var(--side-ink);
+  padding: 9px 12px; border-radius: 10px; font-weight: 600; text-align: left; }
+.nav button svg { width: 18px; height: 18px; flex: none; opacity: .85; }
+.nav button:hover { background: var(--side-hi); }
+.nav button.on { background: var(--side-hi); color: var(--side-on); }
+.nav .badge { margin-left: auto; background: var(--down); color: #fff; font-size: 11px; padding: 1px 7px; border-radius: 999px; display: none; }
+.nav .badge.on { display: inline-block; }
+.side-foot { margin-top: auto; display: grid; gap: 8px; padding: 10px 6px 0; border-top: 1px solid rgba(255,255,255,.08); font-size: 12px; }
+.side-foot .lbl { color: var(--side-ink); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #7d8799; margin-right: 6px; vertical-align: middle; }
+.dot.ok { background: #19c37d; } .dot.err { background: #ff5a65; } .dot.run { background: #f5b400; }
+.switch { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--side-hi); color: var(--side-on);
+  border: 0; border-radius: 10px; padding: 8px 10px; width: 100%; font-weight: 600; }
+.switch i { width: 34px; height: 20px; border-radius: 999px; background: #4b5567; position: relative; flex: none; transition: background .2s; }
+.switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .2s; }
+.switch.on i { background: #19c37d; } .switch.on i::after { left: 16px; }
+main { padding: 0 28px 40px; min-width: 0; }
+.topbar { display: flex; align-items: center; gap: 12px; padding: 18px 0 14px; position: sticky; top: 0; background: var(--bg); z-index: 4; }
+.topbar h1 { font-size: 20px; margin: 0; }
+.card { border-radius: var(--radius); padding: 18px; }
+.card h2 { font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+.grid2 > .card { margin-bottom: 0; }
+.kpis { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.kpi { border-radius: var(--radius); padding: 14px 16px; }
+.kpi .v { font-size: 22px; } .kpi .k { font-weight: 600; }
+.big { font-size: 15px; padding: 12px 16px; border-radius: 10px; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; } .btns > button { flex: 1 1 180px; }
+details.help { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+details.help summary { cursor: pointer; color: var(--accent); font-weight: 600; list-style: none; }
+details.help summary::before { content: "？ "; }
+details.help[open] summary { margin-bottom: 6px; }
+.steplist { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.steplist li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.steplist .ic { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 800;
+  background: var(--chip); color: var(--muted); }
+.steplist li.done .ic { background: rgba(15,157,107,.16); color: var(--up); }
+.steplist li.now { border-color: var(--accent); }
+.steplist li.now .ic { background: var(--accent); color: #fff; }
+.steplist b { display: block; } .steplist small { color: var(--muted); }
+.timeline { display: grid; gap: 6px; margin-top: 12px; }
+.timeline div { display: flex; justify-content: space-between; gap: 10px; padding: 8px 10px; background: var(--chip); border-radius: 8px; font-size: 13px; }
+.timeline div span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+.alert { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: var(--radius); margin-bottom: 16px;
+  background: rgba(214,64,74,.10); border: 1px solid rgba(214,64,74,.35); color: var(--text); }
+.alert b { color: var(--down); }
+.kpi .v.sm { font-size: 17px; }
+@media (max-width: 860px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } .kpi .v { font-size: 18px; }
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .side { position: sticky; height: auto; flex-direction: row; align-items: center; padding: 8px 10px; overflow-x: auto; z-index: 6; gap: 2px; }
+  .brand { padding: 0 8px 0 4px; font-size: 14px; white-space: nowrap; } .brand small { display: none; }
+  .nav { display: flex; gap: 2px; } .nav button { padding: 8px 10px; white-space: nowrap; } .nav button svg { display: none; }
+  .side-foot { display: none; }
+  main { padding: 0 16px 32px; } .topbar { position: static; padding: 14px 0 10px; } .topbar h1 { font-size: 18px; }
+}
 </style>
 </head>
 <body>
-<header>
-  <h1>米国株スイング bot</h1>
-  <span id="jobPill" class="pill">待機中</span>
-  <span class="spacer"></span>
-  <span id="clock" class="hint"></span>
-</header>
+<div class="app">
+  <aside class="side">
+    <div class="brand">米国株スイング bot<small>20日高値ブレイク・模擬口座で運用中</small></div>
+    <nav class="nav"><button data-tab="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg><span>ホーム</span></button><button data-tab="watch"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>監視リスト</span></button><button data-tab="trade"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6 4 4 6-8"/><path d="M14 7h6v6"/></svg><span>発注</span><span id="navHalt" class="badge">停止</span></button><button data-tab="acct"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M3 10h18"/></svg><span>口座</span></button><button data-tab="bt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>バックテスト</span></button><button data-tab="data"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg><span>データ</span></button><button data-tab="log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h9l4 4v12H6z"/><path d="M9 12h7M9 16h7"/></svg><span>ログ</span></button><button data-tab="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>設定</span></button></nav>
+    <div class="side-foot">
+      <button id="autoMini" class="switch"><span>自動実行</span><i></i></button>
+      <div><span id="connDot" class="dot"></span><span id="connText" class="lbl">OpenD 未確認</span></div>
+      <div><span id="jobDot" class="dot"></span><span id="jobPill" class="lbl">待機中</span></div>
+      <div id="clock" class="lbl"></div>
+    </div>
+  </aside>
+  <main>
+    <div class="topbar"><h1 id="pageTitle">ホーム</h1></div>
+    <div id="banner" class="banner"></div>
+    <section id="tab-home">
+      <div id="homeAlert"></div>
+      <div id="homeKpis" class="kpis"></div>
+      <div class="grid2" style="margin-bottom:16px">
+        <div class="card">
+          <h2>自動実行</h2>
+          <div id="autoState" class="hint" style="margin-top:0"></div>
+          <button id="btnAuto" class="wide primary big">自動実行をオンにする</button>
+          <div id="autoNext" class="timeline"></div>
+          <details class="help"><summary>自動実行の条件</summary>
+            このアプリ（画面）を開いている間、予定の時刻に 引け後の処理・寄り付き後の処理・週次スクリーナー を自動で実行します（発注は模擬口座だけ）。
+            OpenD を起動してログインしたまま、Mac を電源につなぎ、ふたを閉じないでください（ふたを閉じるとスリープします）。
+            次に開いたときもオンのまま再開します。</details>
+        </div>
+        <div class="card">
+          <h2>やること</h2>
+          <ul id="homeSteps" class="steplist"></ul>
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="card"><h2>ボットの建玉</h2><div class="tablewrap"><table id="homePos"></table></div></div>
+        <div class="card"><h2>予定・発注中の注文</h2><div class="tablewrap"><table id="homeOrders"></table></div></div>
+      </div>
+    </section>
 
-<div class="layout">
-  <div>
-    <div class="card">
-      <h2>① moomoo に接続</h2>
+    <section id="tab-watch">
+      <div class="card">
+        <h2>今週の監視リスト</h2>
+        <button id="btnScreen" class="primary big" style="width:100%">今週の監視リストを作る</button>
+        <details class="help"><summary>監視リストとは</summary>毎週（自動実行なら土曜 9:00）、その週に勢いのある銘柄を最大 20 選びます。ボットはこの中の銘柄だけを買います。moomoo の場合は OpenD が必要です。</details>
+        <div id="watchMeta" class="hint" style="margin-top:10px"></div>
+        <div id="watchFunnel" class="funnel"></div>
+        <div id="watchNote"></div>
+        <div class="tablewrap"><table id="watchTable"></table></div>
+      </div>
+    </section>
+    <section id="tab-trade" style="display:none">
+      <div id="tradeHalt"></div>
+      <div class="card">
+        <h2>発注（模擬口座）</h2>
+        <div id="tradeMeta" class="kv"></div>
+        <div class="btns">
+          <button id="btnTradeCheck">発注機能の確認</button>
+          <button id="btnTradeClose" class="primary">引け後の処理</button>
+          <button id="btnTradeOpen" class="primary">寄り付き後の処理</button>
+        </div>
+        <details class="help"><summary>それぞれのボタンは何をする？</summary>
+          <b>発注機能の確認</b>: 模擬口座で注文の出し方が通るか試します（米国の取引時間中に押すと、1株買って逆指値まで確かめ、売って戻します）。<br>
+          <b>引け後の処理</b>（毎朝 7:30）: 照合 → 損切りの更新 → 手仕舞い・新規の判定 → 翌寄り付きの注文を予約。<br>
+          <b>寄り付き後の処理</b>（寄り付き直後）: 予約できなかった注文を出し、約定を待って、すぐ逆指値を入れます。<br>
+          自動実行がオンなら、これらは予定の時刻に自動で動きます（手で押しても、同じ日の分が二重になることはありません）。
+        </details>
+        <details style="margin-top:8px"><summary class="hint">やり直したいとき</summary>
+          <button id="btnTradeReset" class="wide">模擬口座の記録をリセット（ボットの注文を取り消して最初から）</button>
+          <div class="hint">ボットが出した有効な注文（買い・売り・逆指値）を取り消し、ボットの資金・建玉の記録を最初からにします。
+            すでに買えてしまった株は自動では売りません（moomoo アプリの模擬口座で売ってください）。</div>
+        </details>
+      </div>
+      <div class="card"><h2>ボットの建玉</h2><div class="tablewrap"><table id="tradePos"></table></div></div>
+      <div class="card"><h2>予定・発注中の注文</h2><div class="tablewrap"><table id="tradeOrders"></table></div></div>
+      <div class="card"><h2>最近の取引</h2><div class="tablewrap"><table id="tradeTrades"></table></div></div>
+      <div class="card"><h2>発注機能の確認の結果</h2><div id="tradeCap"></div></div>
+    </section>
+    <section id="tab-acct" style="display:none">
+      <div class="card">
+        <h2>口座（見るだけ・注文はしません）</h2>
+        <div class="row" style="align-items:flex-end">
+          <div><label>見る口座</label>
+            <select id="account_env"><option value="REAL">実口座</option><option value="SIMULATE">模擬口座</option></select></div>
+          <div><button id="btnAccount" class="primary" style="width:100%">口座を読み込む</button></div>
+        </div>
+        <div id="acctMeta" class="hint" style="margin-top:8px"></div>
+      </div>
+      <div id="acctKpis" class="kpis"></div>
+      <div class="card">
+        <h2>ボットが使う資金</h2>
+        <div id="capital" class="kv"></div>
+        <div class="hint">「口座と連動」のときは、設定の運用資金と口座の総資産の小さい方を使います（口座に多くあっても設定額までしか使いません）。
+          実際の注文（フェーズ 3）を作るときに、この金額で株数を計算します。バックテストは過去の検証なので常に設定額です。</div>
+      </div>
+      <div class="card">
+        <h2>保有している米国株</h2>
+        <div class="tablewrap"><table id="posTable"></table></div>
+      </div>
+    </section>
+    <section id="tab-bt" style="display:none">
+      <div class="card">
+        <h2>バックテスト（過去の成績の確認）</h2>
+        <ol class="steps hint">
+          <li>先に「データ」タブで過去データを取得（初回だけ・数十分）</li>
+          <li>「バックテスト実行」を押す（数分）</li>
+        </ol>
+        <div class="row" style="margin-top:6px">
+          <button id="btnBacktest" class="primary">バックテスト実行</button>
+          <button id="btnBacktestSyn">擬似データで動作確認</button>
+        </div>
+      </div>
+      <div id="btResult"></div>
+    </section>
+    <section id="tab-data" style="display:none">
+      <div class="card">
+        <h2>過去データ（バックテスト用）</h2>
+        <div id="dataStatus" class="kv"></div>
+        <button id="btnFetch" class="wide primary">過去データを取得・更新する</button>
+        <div class="hint">Yahoo Finance から約15年分の日足・時価総額・決算日を取得します。初回は数十分かかります（2回目以降は差分だけ）。
+          データはプログラムのフォルダの外（ホームの moomoo-swing フォルダ）に保存するので、新しい版をダウンロードし直しても消えません。
+          途中で画面を閉じないでください。Mac がスリープしないよう電源につないでおくと安心です。</div>
+      </div>
+    </section>
+    <section id="tab-log" style="display:none">
+      <div class="card"><div id="log" class="log"></div></div>
+    </section>
+    <section id="tab-settings" style="display:none">
+      <div class="grid2">
+<div class="card">
+      <h2>moomoo（OpenD）に接続</h2>
       <div class="hint">OpenD を起動してログインしてから押してください。</div>
       <button id="btnCheck" class="wide primary">OpenD に接続して確認</button>
       <div id="checkOut" class="kv" style="margin-top:10px"></div>
     </div>
-
-    <div class="card">
-      <h2>自動実行</h2>
-      <div id="autoState" class="hint" style="margin-top:0"></div>
-      <button id="btnAuto" class="wide primary">自動実行をオンにする</button>
-      <div id="autoNext" class="kv" style="margin-top:8px"></div>
-      <div class="hint">オンにすると、この画面を開いている間（黒いウィンドウがある間）、予定の時刻に自動で
-        引け後の処理・寄り付き後の処理・週次スクリーナーを実行します（発注は模擬口座だけ）。
-        OpenD を起動してログインしたまま、Mac を電源につなぎ、ふたを閉じないでください（ふたを閉じるとスリープします）。
-        次に画面を開いたときも、オンのまま再開します。</div>
-    </div>
-
-    <div class="card">
+<div class="card">
       <h2>設定</h2>
       <div class="row">
         <div><label>運用資金（円）</label><input id="capital_jpy" type="number" step="1000"></div>
@@ -125,8 +298,7 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
       <button id="btnSave" class="wide">設定を保存</button>
       <div id="saveMsg" class="hint"></div>
     </div>
-
-    <div class="card">
+<div class="card">
       <h2>取引パスワード（実口座用）</h2>
       <div id="pwStatus" class="hint" style="margin-top:0"></div>
       <label>moomoo の取引パスワード</label>
@@ -143,8 +315,7 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
         模擬口座ではパスワードは不要です。実口座での注文は二重ロックで止めてあり、この画面からは出せません。</div>
       <div id="pwMsg" class="hint"></div>
     </div>
-
-    <div class="card">
+<div class="card">
       <h2>進み具合</h2>
       <table class="status-table">
         <tr><td>1. 週次スクリーナー</td><td>✅ できた（実機では未確認）</td></tr>
@@ -154,112 +325,10 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
       </table>
       <div class="hint">この画面から出せるのは模擬口座の注文だけです。実口座の注文は、あなたが許可するまで有効にしません。</div>
     </div>
-  </div>
-
-  <div>
-    <div id="banner" class="banner"></div>
-    <div class="tabs">
-      <button data-tab="watch" class="on">今週の監視リスト</button>
-      <button data-tab="acct">口座</button>
-      <button data-tab="trade">発注（模擬口座）</button>
-      <button data-tab="bt">バックテスト</button>
-      <button data-tab="data">データ</button>
-      <button data-tab="log">ログ</button>
-    </div>
-
-    <section id="tab-watch">
-      <div class="card">
-        <h2>今週の監視リスト</h2>
-        <div class="hint">毎週（土曜の朝がおすすめ）押すと、その週に勢いのある銘柄を選び直します。moomoo の場合は OpenD が必要です。</div>
-        <button id="btnScreen" class="wide primary">今週の監視リストを作る</button>
-        <div id="watchMeta" class="hint" style="margin-top:10px"></div>
-        <div id="watchFunnel" class="funnel"></div>
-        <div id="watchNote"></div>
-        <div class="tablewrap"><table id="watchTable"></table></div>
       </div>
     </section>
 
-    <section id="tab-acct" style="display:none">
-      <div class="card">
-        <h2>口座（見るだけ・注文はしません）</h2>
-        <div class="row" style="align-items:flex-end">
-          <div><label>見る口座</label>
-            <select id="account_env"><option value="REAL">実口座</option><option value="SIMULATE">模擬口座</option></select></div>
-          <div><button id="btnAccount" class="primary" style="width:100%">口座を読み込む</button></div>
-        </div>
-        <div id="acctMeta" class="hint" style="margin-top:8px"></div>
-      </div>
-      <div id="acctKpis" class="kpis"></div>
-      <div class="card">
-        <h2>ボットが使う資金</h2>
-        <div id="capital" class="kv"></div>
-        <div class="hint">「口座と連動」のときは、設定の運用資金と口座の総資産の小さい方を使います（口座に多くあっても設定額までしか使いません）。
-          実際の注文（フェーズ 3）を作るときに、この金額で株数を計算します。バックテストは過去の検証なので常に設定額です。</div>
-      </div>
-      <div class="card">
-        <h2>保有している米国株</h2>
-        <div class="tablewrap"><table id="posTable"></table></div>
-      </div>
-    </section>
-
-    <section id="tab-trade" style="display:none">
-      <div id="tradeHalt"></div>
-      <div class="card">
-        <h2>発注（模擬口座・SIMULATE）</h2>
-        <div id="tradeMeta" class="kv"></div>
-        <ol class="steps hint">
-          <li><b>最初に1回</b>「発注機能の確認」: 模擬口座で注文の出し方が通るか試します（米国の取引時間中に押すと逆指値まで確かめます）</li>
-          <li><b>毎朝（7:30 ごろ・米国の引け後）</b>「引け後の処理」: 照合 → 損切りの更新 → 手仕舞い・新規の判定 → 翌寄り付きの注文を予約</li>
-          <li><b>寄り付き直後</b>「寄り付き後の処理」: 予約できなかった注文を出し、約定を待って、すぐ逆指値を入れます</li>
-        </ol>
-        <div class="row" style="margin-top:6px">
-          <button id="btnTradeCheck">発注機能の確認</button>
-          <button id="btnTradeClose" class="primary">引け後の処理</button>
-          <button id="btnTradeOpen" class="primary">寄り付き後の処理</button>
-        </div>
-        <div class="hint">左の「自動実行」をオンにすると、これらを予定の時刻に自動で押します（手で押しても構いません。同じ日の分は 2 回動きません）。</div>
-        <details style="margin-top:8px"><summary class="hint">やり直したいとき</summary>
-          <button id="btnTradeReset" class="wide">模擬口座の記録をリセット（ボットの注文を取り消して最初から）</button>
-          <div class="hint">ボットが出した有効な注文（買い・売り・逆指値）を取り消し、ボットの資金・建玉の記録を最初からにします。
-            すでに買えてしまった株は自動では売りません（moomoo アプリの模擬口座で売ってください）。</div>
-        </details>
-      </div>
-      <div class="card"><h2>ボットの建玉</h2><div class="tablewrap"><table id="tradePos"></table></div></div>
-      <div class="card"><h2>予定・発注中の注文</h2><div class="tablewrap"><table id="tradeOrders"></table></div></div>
-      <div class="card"><h2>最近の取引</h2><div class="tablewrap"><table id="tradeTrades"></table></div></div>
-      <div class="card"><h2>発注機能の確認の結果</h2><div id="tradeCap"></div></div>
-    </section>
-
-    <section id="tab-bt" style="display:none">
-      <div class="card">
-        <h2>バックテスト（過去の成績の確認）</h2>
-        <ol class="steps hint">
-          <li>先に「データ」タブで過去データを取得（初回だけ・数十分）</li>
-          <li>「バックテスト実行」を押す（数分）</li>
-        </ol>
-        <div class="row" style="margin-top:6px">
-          <button id="btnBacktest" class="primary">バックテスト実行</button>
-          <button id="btnBacktestSyn">擬似データで動作確認</button>
-        </div>
-      </div>
-      <div id="btResult"></div>
-    </section>
-
-    <section id="tab-data" style="display:none">
-      <div class="card">
-        <h2>過去データ（バックテスト用）</h2>
-        <div id="dataStatus" class="kv"></div>
-        <button id="btnFetch" class="wide primary">過去データを取得・更新する</button>
-        <div class="hint">Yahoo Finance から約15年分の日足・時価総額・決算日を取得します。初回は数十分かかります（2回目以降は差分だけ）。
-          データはプログラムのフォルダの外（ホームの moomoo-swing フォルダ）に保存するので、新しい版をダウンロードし直しても消えません。
-          途中で画面を閉じないでください。Mac がスリープしないよう電源につないでおくと安心です。</div>
-      </div>
-    </section>
-
-    <section id="tab-log" style="display:none">
-      <div class="card"><div id="log" class="log"></div></div>
-    </section>
-  </div>
+  </main>
 </div>
 
 <script>
@@ -278,10 +347,14 @@ const cls = (v) => v > 0 ? "up" : v < 0 ? "down" : "";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function banner(msg, kind) { const b = $("banner"); b.className = msg ? "banner on " + kind : "banner"; b.textContent = msg || ""; }
 
-document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
-  document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
-  for (const t of ["watch", "acct", "trade", "bt", "data", "log"]) $("tab-" + t).style.display = b.dataset.tab === t ? "" : "none";
+const TABS = ["home", "watch", "trade", "acct", "bt", "data", "log", "settings"];
+document.querySelectorAll(".nav button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll(".nav button").forEach((x) => x.classList.toggle("on", x === b));
+  for (const t of TABS) $("tab-" + t).style.display = b.dataset.tab === t ? "" : "none";
+  $("pageTitle").textContent = b.querySelector("span").textContent;
+  window.scrollTo(0, 0);
 });
+const go = (t) => document.querySelector(`.nav [data-tab=${t}]`).click();
 
 async function job(name) {
   const r = await api("/api/job", { name });
@@ -293,6 +366,7 @@ $("btnTradeCheck").onclick = () => job("trade_check");
 $("btnTradeClose").onclick = () => job("trade_close");
 $("btnTradeOpen").onclick = () => job("trade_open");
 $("btnTradeReset").onclick = () => { if (confirm("模擬口座のボットの注文を取り消して、記録を最初からにします。よろしいですか？")) job("trade_reset"); };
+$("autoMini").onclick = () => $("btnAuto").click();
 $("btnAuto").onclick = async () => {
   const on = !(last && last.auto && last.auto.on);
   if (on && !confirm("自動実行をオンにします。この画面を開いている間、予定の時刻に模擬口座で自動で注文を出します。よろしいですか？")) return;
@@ -302,11 +376,12 @@ function renderAuto(a) {
   if (!a) return;
   $("autoState").innerHTML = a.on ? "✅ <b>オン</b>（この画面を開いている間、自動で動きます）" : "オフ（ボタンを押したときだけ動きます）";
   $("btnAuto").textContent = a.on ? "自動実行をオフにする" : "自動実行をオンにする";
-  $("btnAuto").className = a.on ? "wide" : "wide primary";
+  $("btnAuto").className = a.on ? "wide big" : "wide primary big";
+  $("autoMini").classList.toggle("on", !!a.on);
   const R = { ok: "✅", error: "❌", busy: "…" };
   const rows = (a.upcoming || []).map((x) => [`次の${x.label}`, esc(x.time)]);
-  for (const [k, v] of Object.entries(a.last || {})) rows.push([`前回 ${{ trade_close: "引け後", trade_open: "寄り付き後", screen: "週次" }[k] || k}`, `${R[v.result] || ""} ${esc(v.time)}（${esc(v.key)} の分）`]);
-  $("autoNext").innerHTML = rows.map(([k, v]) => `<div>${k}</div><div>${v}</div>`).join("");
+  for (const [k, v] of Object.entries(a.last || {})) rows.push([`前回の${{ trade_close: "引け後の処理", trade_open: "寄り付き後の処理", screen: "週次スクリーナー" }[k] || k}`, `${R[v.result] || ""} ${esc(v.time)}`]);
+  $("autoNext").innerHTML = rows.map(([k, v]) => `<div><span>${k}</span><span>${v}</span></div>`).join("");
 }
 async function tradeResume() {
   if (!confirm("停止の原因を確かめましたか？（moomoo アプリで注文と保有株を見て、ボットの記録と合っているか）\n解除すると、次の処理から注文を出します。")) return;
@@ -334,7 +409,7 @@ $("btnFetch").onclick = () => job("fetch");
 $("btnBacktest").onclick = () => {
   if (last && last.data && !last.data.universe) {
     banner("過去データがまだありません。先に「データ」タブで「過去データを取得・更新する」を押してください（初回は数十分）。", "err");
-    document.querySelector('[data-tab=data]').click(); return;
+    go("data"); return;
   }
   job("backtest");
 };
@@ -351,27 +426,68 @@ $("btnSave").onclick = saveSettings;
 function renderJob(j) {
   const busy = j && j.state === "running";
   for (const id of ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn", "btnAccount", "btnPwVerify", "btnTradeCheck", "btnTradeClose", "btnTradeOpen", "btnTradeReset"]) $(id).disabled = busy;
-  const pill = $("jobPill");
-  if (!j) { pill.className = "pill"; pill.textContent = "待機中"; return; }
+  const pill = $("jobPill"), dot = $("jobDot");
+  if (!j) { dot.className = "dot"; pill.textContent = "待機中"; return; }
   const m = Math.floor(j.elapsed / 60), s = j.elapsed % 60, t = m ? `${m}分${s}秒` : `${s}秒`;
-  if (busy) { pill.className = "pill run"; pill.textContent = `実行中: ${j.label}（${t}）`; banner(`「${j.label}」を実行中です（${t}）。進み具合は「ログ」タブで見られます。`, "run"); }
-  else if (j.state === "error") { pill.className = "pill err"; pill.textContent = "エラー"; banner(`「${j.label}」でエラー: ${j.error}`, "err"); }
-  else { pill.className = "pill ok"; pill.textContent = `完了: ${j.label}`; }
+  if (busy) { dot.className = "dot run"; pill.textContent = `実行中: ${j.label}（${t}）`; banner(`「${j.label}」を実行中です（${t}）。進み具合は「ログ」タブで見られます。`, "run"); }
+  else if (j.state === "error") { dot.className = "dot err"; pill.textContent = `エラー: ${j.label}`; banner(`「${j.label}」でエラー: ${j.error}`, "err"); }
+  else { dot.className = "dot ok"; pill.textContent = `完了: ${j.label}`; }
   const key = j.name + j.started + j.state;
   if (key !== lastJobKey) {
     lastJobKey = key;
     if (j.state === "done") banner(`「${j.label}」が完了しました（${t}）。`, "info");
     if (j.state === "done" && j.name === "check" && j.result) renderCheck(j.result);
-    if (j.state === "done" && j.name.startsWith("backtest")) document.querySelector('[data-tab=bt]').click();
-    if (j.state === "done" && j.name === "screen") document.querySelector('[data-tab=watch]').click();
-    if (j.state === "done" && j.name === "account") document.querySelector('[data-tab=acct]').click();
-    if (j.name.startsWith("trade_") && j.state !== "running") document.querySelector('[data-tab=trade]').click();
+    if (j.state === "done" && j.name.startsWith("backtest")) go("bt");
+    if (j.state === "done" && j.name === "screen") go("watch");
+    if (j.state === "done" && j.name === "account") go("acct");
+    if (j.name.startsWith("trade_") && j.state !== "running") go("trade");
     if (j.name === "trade_reset" && j.state === "done") {
       const r = j.result || {}, left = (r.left_shares || []).map((x) => `${x.symbol} ${x.shares}株`).join("、");
       banner(`リセットしました。取り消した注文: ${(r.cancelled || []).join("、") || "なし"}` + (left ? `／ 買えてしまった株: ${left}（moomoo アプリの模擬口座で売ってください）` : ""), left ? "err" : "info");
     }
     if (j.name === "verify_password") $("pwMsg").textContent = j.state === "done" ? "✅ " + j.result.message : (j.state === "error" ? "❌ " + j.error : "");
   }
+}
+function renderConn(c) {
+  if (!c) return;
+  const ok = c.qot_logined && c.trd_logined;
+  $("connDot").className = "dot " + (ok ? "ok" : "err");
+  $("connText").textContent = ok ? `OpenD 接続 OK（${c.time}）` : `OpenD ログインを確認（${c.time}）`;
+}
+function renderHome(st) {
+  const t = st.trade || {}, fx = t.fx || 150, h = t.halt || {};
+  $("navHalt").classList.toggle("on", !!h.on);
+  $("homeAlert").innerHTML = h.on ? `<div class="alert"><div><b>⛔ 発注を止めています</b><br>${esc(h.reason)}<br>
+    <small class="hint">新しい注文は出しません（証券会社側の逆指値は残っています）。「発注」画面で確かめて解除してください。</small></div></div>` : "";
+  const eq = t.equity_usd ?? t.capital_usd, cap = t.capital_usd;
+  const pos = Object.values(t.positions || {}), ords = t.orders || [];
+  const trades = t.trades || [], realized = trades.reduce((a, x) => a + (x.pnl || 0), 0);
+  const next = (st.auto && st.auto.upcoming || [])[0];
+  const kpi = (k, v, s, c = "") => `<div class="kpi"><div class="k">${k}</div><div class="v ${c}">${v}</div><div class="s">${s}</div></div>`;
+  $("homeKpis").innerHTML = [
+    kpi("ボットの資金", cap == null ? "—" : yen(eq * fx), cap == null ? "最初の処理で決まります" : `${usd(eq)}・1ドル ${fmt(fx, 2)} 円`),
+    kpi("開始からの損益", cap == null ? "—" : sgn((eq - cap) * fx, yen), cap == null ? "" : `${sgn((eq / cap - 1) * 100, (v) => fmt(v, 2) + "%")}・確定 ${sgn(realized, usd)}`, cap == null ? "" : cls(eq - cap)),
+    kpi("建玉", `${pos.length} / 3`, ords.length ? `予定の注文 ${ords.length} 件` : "予定の注文なし"),
+    kpi("今週", t.week && t.week.tripped ? "新規停止" : (h.on ? "発注停止中" : "通常"), t.week && t.week.tripped ? "損失上限 6% に達しました" : "損失上限 6% まで", t.week && t.week.tripped || h.on ? "down" : ""),
+    kpi("次の予定", next ? `<span style="font-size:17px">${esc(next.time)}</span>` : "—", next ? esc(next.label) + (st.auto.on ? "（自動）" : "（自動実行オフ）") : ""),
+  ].join("");
+  $("homePos").innerHTML = pos.length ? `<tr><th>銘柄</th><th>株数</th><th>買値</th><th>損切り</th><th>逆指値</th></tr>` +
+    pos.map((p) => `<tr><td><b>${esc(p.symbol)}</b></td><td>${fmt(p.shares, 0)}</td><td>${usd(p.entry_price)}</td><td>${usd(p.stop)}</td><td>${p.stop_order_id ? "✅" : "❌"}</td></tr>`).join("")
+    : `<tr><td class="empty">建玉はありません</td></tr>`;
+  $("homeOrders").innerHTML = ords.length ? `<tr><th>銘柄</th><th>売買</th><th>株数</th><th>執行日</th></tr>` +
+    ords.map((o) => `<tr><td><b>${esc(o.symbol)}</b></td><td>${KIND[o.kind] || o.kind}</td><td>${fmt(o.qty, 0)}</td><td>${esc(o.for_date)}</td></tr>`).join("")
+    : `<tr><td class="empty">ありません</td></tr>`;
+  const c = st.check, wl = st.watchlist, capb = t.capability, auto = st.auto && st.auto.on;
+  const steps = [
+    [!!(c && c.qot_logined && c.trd_logined), "OpenD に接続", c ? `確認済み（${c.time}）` : "「設定」→「OpenD に接続して確認」", "settings"],
+    [!!wl, "今週の監視リストを作る", wl ? `${wl.run_date} 作成・${wl.items.length} 銘柄` : "「監視リスト」→「今週の監視リストを作る」", "watch"],
+    [!!(capb && capb.ok && capb.regular_hours), "発注機能の確認（取引時間中に）", capb ? (capb.regular_hours ? (capb.ok ? "逆指値まで OK" : "通らないものがあります") : "時間外は OK。取引時間中（夜）にもう一度") : "「発注」→「発注機能の確認」", "trade"],
+    [!!auto, "自動実行をオンにする", auto ? "オン（画面を開いている間）" : "左下のスイッチ、または左の「自動実行」", "home"],
+  ];
+  let cur = steps.findIndex((x) => !x[0]);
+  $("homeSteps").innerHTML = steps.map(([done, title, sub, tab], i) =>
+    `<li class="${done ? "done" : i === cur ? "now" : ""}" data-go="${tab}" style="cursor:pointer"><span class="ic">${done ? "✓" : i + 1}</span><div><b>${title}</b><small>${esc(sub)}</small></div></li>`).join("");
+  document.querySelectorAll("#homeSteps li").forEach((li) => li.onclick = () => go(li.dataset.go));
 }
 function renderCheck(r) {
   $("checkOut").innerHTML = "";
@@ -468,9 +584,9 @@ function renderTrade(t) {
   if (!t) return;
   if (t.error) { $("tradeMeta").textContent = t.error; return; }
   const h = t.halt || {};
-  $("tradeHalt").innerHTML = h.on ? `<div class="banner on err" style="display:block">⛔ 発注を止めています（${esc(h.time || "")}）<br>${esc(h.reason)}<br>
+  $("tradeHalt").innerHTML = h.on ? `<div class="alert"><div><b>⛔ 発注を止めています</b>（${esc(h.time || "")}）<br>${esc(h.reason)}<br>
     <small>新しい注文は出しません。証券会社側の逆指値は残っています。moomoo アプリで確かめてから解除してください。</small><br>
-    <button id="btnTradeResume" style="margin-top:6px">原因を確かめたので停止を解除</button></div>` : "";
+    <button id="btnTradeResume" style="margin-top:8px">原因を確かめたので停止を解除</button></div></div>` : "";
   if (h.on) $("btnTradeResume").onclick = tradeResume;
   const ns = t.next_session || {};
   const kv = [["口座", t.env_config === "SIMULATE" ? "模擬口座（SIMULATE）" : "⚠ config が " + esc(t.env_config) + "（画面からは発注しません）"],
@@ -523,11 +639,11 @@ function renderData(d) {
 
 async function poll() {
   let st;
-  try { st = await api("/api/status?since=" + logSeq); } catch (e) { $("jobPill").textContent = "画面のサーバが止まっています"; $("jobPill").className = "pill err"; return; }
+  try { st = await api("/api/status?since=" + logSeq); } catch (e) { $("jobPill").textContent = "画面のサーバが止まっています"; $("jobDot").className = "dot err"; return; }
   last = st;
   $("clock").textContent = "日本時間 " + st.now_jst;
   renderSettings(st.settings); renderJob(st.job); renderWatch(st.watchlist); renderReport(st.report); renderData(st.data);
-  renderAccount(st.account, st.capital); renderPassword(st.password); renderTrade(st.trade); renderAuto(st.auto);
+  renderAccount(st.account, st.capital); renderPassword(st.password); renderTrade(st.trade); renderAuto(st.auto); renderConn(st.check); renderHome(st);
   const lg = $("log");
   for (const l of st.logs) { const d = document.createElement("div"); d.className = l.level; d.textContent = l.msg; lg.appendChild(d); logSeq = l.id; }
   while (lg.childNodes.length > 1500) lg.removeChild(lg.firstChild);
