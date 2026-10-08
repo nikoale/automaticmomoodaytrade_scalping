@@ -409,6 +409,7 @@ img.chart { width: 100%; border-radius: 12px; border: 1px solid var(--line); bac
               <div id="realState" class="kv" style="margin-bottom:14px"></div>
               <div class="btns">
                 <button id="btnRealAllow" class="btn danger">① 本番口座を許可する</button>
+                <button id="btnRealAllowSkip" class="btn danger" hidden>① 確認を省略して許可する</button>
                 <button id="btnRealUnlock" class="btn danger">② この起動中のロックを解除</button>
               </div>
               <div class="btns" style="margin-top:10px">
@@ -575,7 +576,7 @@ async function saveSettings() {
   poll();
 }
 $("btnSave").onclick = saveSettings;
-async function realAction(action, needPhrase) {
+async function realAction(action, needPhrase, skip = false) {
   const r0 = (last && last.trade && last.trade.real) || {};
   let phrase = "";
   if (needPhrase) {
@@ -586,7 +587,7 @@ async function realAction(action, needPhrase) {
     if (phrase === null) return;
   }
   if (action === "unlock") toast("取引パスワードでロック解除できるか確かめています…", "run");
-  const r = await api("/api/real", { action, phrase, capital_jpy: +$("realCap").value, max_order_jpy: +$("realMax").value });
+  const r = await api("/api/real", { action, phrase, capital_jpy: +$("realCap").value, max_order_jpy: +$("realMax").value, skip_sim_check: skip });
   if (!r.ok) toast(esc(r.error), "err", true);
   else toast({ allow: "本番口座を許可しました。注文を出すには ② ロック解除も必要です", unlock: "ロックを解除しました。次の処理から本番口座で発注します",
     lock: "ロックしました（本番の注文は出しません）", disallow: "模擬口座に戻しました", settings: "金額を保存しました" }[action], action === "unlock" || action === "allow" ? "run" : "ok");
@@ -594,6 +595,12 @@ async function realAction(action, needPhrase) {
 }
 $("btnRealAllow").onclick = () => realAction("allow", true);
 $("btnRealUnlock").onclick = () => realAction("unlock", true);
+$("btnRealAllowSkip").onclick = () => {
+  if (!confirm("模擬口座での「発注機能の確認」をしないで本番口座を許可します。\n\n" +
+    "・日本の口座で逆指値（損切り）の注文が通るか、まだ確かめていません\n" +
+    "・通らなかった場合、ボットは買った直後にその株を成行で売って発注を止めます（手数料と値幅の分だけ損をします）\n\nそれでも進めますか？")) return;
+  realAction("allow", true, true);
+};
 $("btnRealLock").onclick = () => realAction("lock", false);
 $("btnRealDisallow").onclick = () => { if (confirm("本番口座の許可を取り消して、模擬口座に戻しますか？（証券会社に入っている逆指値はそのまま残ります）")) realAction("disallow", false); };
 $("btnRealSave").onclick = () => realAction("settings", false);
@@ -611,6 +618,9 @@ function renderReal(r) {
     ["② この起動中", r.unlocked ? '<span class="tag down">ロック解除中</span>' : '<span class="tag">ロック中</span>'],
     ["今の発注先", live ? '<b class="down">本番口座（実際のお金）</b>' : r.allowed ? "なし（ロック解除するまで注文しません）" : "模擬口座"]]);
   const allPre = (r.preconditions || []).every((p) => p.ok);
+  const onlyCheck = !allPre && (r.preconditions || []).filter((p) => !p.ok).every((p) => p.skippable);
+  $("btnRealAllowSkip").hidden = r.allowed || !onlyCheck;
+  $("btnRealAllow").hidden = !r.allowed && onlyCheck;
   $("btnRealAllow").disabled = r.allowed || !allPre; $("btnRealUnlock").disabled = !r.allowed || r.unlocked || !allPre;
   $("btnRealLock").disabled = !r.unlocked; $("btnRealDisallow").disabled = !r.allowed;
   $("btnTradeCheck").title = live ? "本番口座では使えません（模擬口座だけ）" : "";

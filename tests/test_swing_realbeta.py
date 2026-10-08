@@ -106,3 +106,19 @@ def test_order_size_capped_by_max_order(tmp_path):
     ex.run_close()
     o = ex.st["orders"][0]
     assert o["qty"] >= 1 and o["qty"] * o["ref_price"] * 150 <= 10000 + 1e-6
+
+
+def test_allow_with_skipped_simulate_check(app):
+    app.passwords.use_for_session(SECRET)
+    with pytest.raises(RuntimeError, match="発注機能の確認"):
+        app.real_action("allow", realbeta.PHRASE)
+    r = app.real_action("allow", realbeta.PHRASE, skip_sim_check=True)        # あなたの判断で省略
+    assert r["allowed"] and r["preconditions"][0]["ok"] and "省略" in r["preconditions"][0]["detail"]
+    assert app.real_action("unlock", realbeta.PHRASE)["env"] == "REAL"
+    app.real_action("disallow")
+    assert not realbeta.load(app.cfg()).get("skip_sim_check")
+
+
+def test_skip_does_not_skip_password(app):
+    with pytest.raises(RuntimeError, match="取引パスワード"):
+        app.real_action("allow", realbeta.PHRASE, skip_sim_check=True)

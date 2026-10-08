@@ -319,7 +319,8 @@ class App:
         cfg = self.cfg()
         return realbeta.real_cfg(cfg, realbeta.load(cfg)) if self.trade_env() == "REAL" else cfg
 
-    def real_action(self, action: str, phrase: str = "", capital_jpy=None, max_order_jpy=None) -> dict:
+    def real_action(self, action: str, phrase: str = "", capital_jpy=None, max_order_jpy=None,
+                    skip_sim_check: bool = False) -> dict:
         from . import realbeta
         from .passwords import verify
         if self.running():
@@ -336,7 +337,10 @@ class App:
             realbeta.save(cfg, beta)
         elif action == "allow":
             pw, _ = self.passwords.get()
-            bad = [r for r in realbeta.preconditions(cfg, bool(pw)) if not r["ok"]]
+            if skip_sim_check:
+                beta["skip_sim_check"] = True
+                log.warning("[本番] 模擬口座での発注機能の確認を省略して許可します (あなたの判断)")
+            bad = [r for r in realbeta.preconditions(cfg, bool(pw), beta) if not r["ok"]]
             if bad:
                 raise RuntimeError("本番口座を許可する条件がそろっていません: " + " / ".join(r["detail"] for r in bad))
             beta["capital_jpy"], beta["max_order_jpy"] = realbeta.check_amounts(cfg, capital_jpy or beta["capital_jpy"],
@@ -349,7 +353,7 @@ class App:
             if not beta["allowed"]:
                 raise RuntimeError("先に「本番口座を許可する」をしてください")
             pw, _ = self.passwords.get()
-            bad = [r for r in realbeta.preconditions(cfg, bool(pw)) if not r["ok"]]
+            bad = [r for r in realbeta.preconditions(cfg, bool(pw), beta) if not r["ok"]]
             if bad:
                 raise RuntimeError("条件がそろっていません: " + " / ".join(r["detail"] for r in bad))
             ok, msg = verify(cfg, pw)                  # 実際にロック解除できるか (すぐロックし直す。注文はしない)
@@ -364,6 +368,7 @@ class App:
         elif action == "disallow":
             self.real_unlocked = False
             beta["allowed"] = False
+            beta["skip_sim_check"] = False
             realbeta.save(cfg, beta)
             log.warning("[本番] 本番口座の許可を取り消しました。模擬口座に戻ります")
         else:
@@ -376,7 +381,7 @@ class App:
         beta = realbeta.load(cfg)
         pw, _ = self.passwords.get()
         return {**beta, "unlocked": self.real_unlocked, "env": self.trade_env(), "phrase": realbeta.PHRASE,
-                "hard_max": cfg["real_beta"]["capital_jpy_hard_max"], "preconditions": realbeta.preconditions(cfg, bool(pw))}
+                "hard_max": cfg["real_beta"]["capital_jpy_hard_max"], "preconditions": realbeta.preconditions(cfg, bool(pw), beta)}
 
     def _job_trade(self, what: str) -> dict:
         from . import executor, realbeta
@@ -573,7 +578,8 @@ def make_handler(app: App):
                                                                                    body.get("password"))})
                 if self.path == "/api/real":
                     return self._json({"ok": True, "real": app.real_action(body.get("action", ""), body.get("phrase") or "",
-                                                                          body.get("capital_jpy"), body.get("max_order_jpy"))})
+                                                                          body.get("capital_jpy"), body.get("max_order_jpy"),
+                                                                          bool(body.get("skip_sim_check")))})
                 if self.path == "/api/auto":
                     return self._json({"ok": True, "on": app.set_auto(bool(body.get("on")))})
                 if self.path == "/api/trade_resume":

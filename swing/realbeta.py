@@ -8,6 +8,7 @@
 
 許可する前の条件 (コードで強制する):
   - 模擬口座の「発注機能の確認」を米国の取引時間中に行い、逆指値まですべて通っていること
+    (ユーザーが「確認を省略して許可」を選んだときは省略する。その場合も、逆指値が入らなければ成行で売って止まる)
   - 取引パスワードが設定されていて、ロック解除できること (ロック解除のときに確認)
   - 本番の資金・1 注文の上限が config の real_beta.capital_jpy_hard_max 以下
 
@@ -73,9 +74,11 @@ def capability_ok(cfg) -> tuple[bool, str]:
     return True, f"確認済み（{str(c.get('time', ''))[:16].replace('T', ' ')}）"
 
 
-def preconditions(cfg, password_set: bool) -> list[dict]:
+def preconditions(cfg, password_set: bool, beta: dict | None = None) -> list[dict]:
     ok, why = capability_ok(cfg)
-    rows = [{"name": "模擬口座で逆指値まで確認", "ok": ok, "detail": why}]
+    if not ok and (beta or {}).get("skip_sim_check"):
+        ok, why = True, "省略（あなたの判断で、模擬口座での確認なしに許可）"
+    rows = [{"name": "模擬口座で逆指値まで確認", "ok": ok, "detail": why, "skippable": True}]
     rows.append({"name": "取引パスワード", "ok": bool(password_set),
                  "detail": "設定済み" if password_set else "「取引パスワード」で保存してください"})
     if not cfg["real_beta"]["require_simulate_check"]:
