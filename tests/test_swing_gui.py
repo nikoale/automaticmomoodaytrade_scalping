@@ -115,3 +115,24 @@ def test_synthetic_backtest_and_report_files(gui):
     assert code == 200 and png[:4] == b"\x89PNG"
     assert call("/reports/../config.yaml", raw=True)[0] == 404          # 外のファイルは読めない
     assert call(f"/reports/{rep['dir']}/../../config.yaml", raw=True)[0] == 404
+
+
+def test_trade_tab_status_resume_and_real_refused(gui):
+    app, call, wait, _ = gui
+    from swing import executor
+    _, st = call("/api/status")
+    t = st["trade"]
+    assert t["env_config"] == "SIMULATE" and not t["halt"]["on"] and t["next_session"]["open_jst"]
+    # 停止 → 画面から解除
+    cfg = app.cfg()
+    s = executor.load_state(cfg, "SIMULATE")
+    s["halt"] = {"on": True, "reason": "テスト", "time": "x"}
+    executor.save_state(cfg, "SIMULATE", s)
+    assert call("/api/status")[1]["trade"]["halt"]["reason"] == "テスト"
+    assert call("/api/trade_resume", {})[1]["ok"]
+    assert not call("/api/status")[1]["trade"]["halt"]["on"]
+    # config が REAL でも、画面からは発注しない
+    app.cfg = lambda: config_mod.load(app.config_path, {"moomoo": {"trd_env": "REAL", "allow_real": True}})
+    assert call("/api/job", {"name": "trade_close"})[1]["ok"]
+    st = wait("trade_close")
+    assert st["job"]["state"] == "error" and "模擬口座" in st["job"]["error"]

@@ -3,7 +3,7 @@
 python -m swing gui → http://127.0.0.1:8765 が開く。
 - 127.0.0.1 にのみ待ち受け、起動ごとのトークンで他の Web サイトからの操作を防ぐ
 - 時間のかかる処理 (データ取得・スクリーナー・バックテスト) は裏で 1 つずつ実行し、ログを画面に流す
-- 発注はしない (フェーズ 3 は未実装)
+- 発注は模擬口座 (SIMULATE) だけ。画面からは本番口座 (REAL) の注文を出せない (起動時の確認を渡さないため)
 """
 from __future__ import annotations
 
@@ -119,7 +119,9 @@ class App:
     def start_job(self, name: str) -> dict:
         jobs = {"check": self._job_check, "screen": self._job_screen, "fetch": self._job_fetch,
                 "account": self._job_account, "verify_password": self._job_verify_password,
-                "backtest": lambda: self._job_backtest(False), "backtest_synthetic": lambda: self._job_backtest(True)}
+                "backtest": lambda: self._job_backtest(False), "backtest_synthetic": lambda: self._job_backtest(True),
+                "trade_close": lambda: self._job_trade("close"), "trade_open": lambda: self._job_trade("open"),
+                "trade_check": lambda: self._job_trade("check")}
         if name not in jobs:
             return {"ok": False, "error": f"不明な処理: {name}"}
         with self.job_lock:
@@ -217,6 +219,48 @@ class App:
         out = cmd_backtest(self.cfg(), synthetic)
         return {"dir": out.name}
 
+    def _job_trade(self, what: str) -> dict:
+        from . import executor
+        cfg = self.cfg()
+        if str(cfg["moomoo"]["trd_env"]).upper() != "SIMULATE":
+            raise RuntimeError("画面からは模擬口座 (SIMULATE) でしか発注しません。config の moomoo.trd_env を確認してください")
+        with executor.Session(cfg) as ex:          # confirm を渡さない → REAL は開けない
+            if what == "close":
+                s = ex.run_close()
+            elif what == "open":
+                s = ex.run_open()
+            else:
+                s = executor.capability_check(cfg, ex.broker)
+        return {"halt": s.get("halt"), "ok": s.get("ok")}
+
+    def trade_resume(self) -> dict:
+        from . import executor
+        cfg = self.cfg()
+        st = executor.load_state(cfg, "SIMULATE")
+        if st["halt"]["on"]:
+            log.warning("[停止解除] 画面から解除しました (理由だったもの: %s)", st["halt"]["reason"])
+            st["halt"] = {"on": False, "reason": "", "time": None}
+            executor.save_state(cfg, "SIMULATE", st)
+        return st["halt"]
+
+    def trade_status(self) -> dict:
+        from . import executor
+        cfg = self.cfg()
+        try:
+            t = executor.read_summary(cfg, "SIMULATE")
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e)}
+        now = datetime.now(calendar_us.TOKYO)
+        d = now.astimezone(calendar_us.NY).date()
+        if not calendar_us.is_trading_day(d) or now >= calendar_us.session_times_jst(d)[1]:
+            d = calendar_us.next_trading_day(d)
+        o, c = calendar_us.session_times_jst(d)
+        t["next_session"] = {"date": d.isoformat(), "open_jst": o.strftime("%m/%d %H:%M"), "close_jst": c.strftime("%m/%d %H:%M"),
+                             "in_session": o <= now < c}
+        t["env_config"] = str(cfg["moomoo"]["trd_env"]).upper()
+        t["order_timing"] = cfg["executor"]["order_timing"]
+        return t
+
     # ---------------------------------------------------------------- 表示用の情報
     def data_status(self) -> dict:
         cfg = self.cfg()
@@ -271,13 +315,15 @@ class App:
         settings["account_env"] = self.load_settings().get("account_env", "REAL")
         return {"job": job, "logs": self.logs.since(since), "settings": settings,
                 "account": self.account, "capital": effective_capital(cfg, acc_total, acc_fx),
-                "password": self.passwords.status(),
+                "password": self.passwords.status(), "trade": self.trade_status(),
                 "data": self.data_status(), "watchlist": self.latest_watchlist(), "report": self.latest_report(),
                 "now_jst": datetime.now(calendar_us.TOKYO).strftime("%Y-%m-%d %H:%M")}
 
 
 JOB_LABELS = {"check": "OpenD 接続チェック", "account": "口座の読み込み", "verify_password": "取引パスワードの確認", "screen": "今週の監視リスト作成", "fetch": "過去データの取得",
-              "backtest": "バックテスト", "backtest_synthetic": "バックテスト (擬似データ)"}
+              "backtest": "バックテスト", "backtest_synthetic": "バックテスト (擬似データ)",
+              "trade_close": "引け後の処理 (模擬口座)", "trade_open": "寄り付き後の処理 (模擬口座)",
+              "trade_check": "発注機能の確認 (模擬口座)"}
 
 
 def make_handler(app: App):
@@ -347,6 +393,10 @@ def make_handler(app: App):
                 if self.path == "/api/password":
                     return self._json({"ok": True, "password": app.password_action(body.get("action", ""),
                                                                                    body.get("password"))})
+                if self.path == "/api/trade_resume":
+                    if app.running():
+                        return self._json({"ok": False, "error": "処理の実行中は解除できません"})
+                    return self._json({"ok": True, "halt": app.trade_resume()})
                 if self.path == "/api/settings":
                     return self._json({"ok": True, "settings": app.save_settings(body.get("settings") or {})})
             except Exception as e:  # noqa: BLE001

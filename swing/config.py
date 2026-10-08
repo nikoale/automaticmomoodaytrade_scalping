@@ -23,6 +23,8 @@ REQUIRED = {
                  "initial_stop_atr", "trail_trigger_atr", "trail_sma", "trail_atr", "time_exit_days",
                  "time_exit_min_gain_atr", "earnings_exit_days_before", "index_filter"],
     "risk": ["risk_per_trade_pct", "max_position_pct", "weekly_loss_limit_pct", "allow_fractional"],
+    "executor": ["state_dir", "order_timing", "stop_time_in_force", "fill_wait_sec", "poll_sec", "on_stop_failure",
+                 "max_orders_per_run", "watchlist_max_age_days", "earnings_refresh_days", "test_symbol"],
     "backtest": ["start", "end", "out_of_sample_years", "stress_periods", "market_cap_proxy", "report_dir"],
 }
 
@@ -74,6 +76,13 @@ def load(path: str | Path | None = None, overrides: dict | None = None) -> Confi
         raise ValueError("account.capital_source は account / config")
     if data["data"]["screener_source"] not in ("moomoo", "free"):
         raise ValueError("data.screener_source は moomoo / free")
+    ex = data["executor"]
+    if ex["order_timing"] not in ("reserve", "at_open"):
+        raise ValueError("executor.order_timing は reserve / at_open")
+    if ex["stop_time_in_force"] not in ("GTC", "DAY"):
+        raise ValueError("executor.stop_time_in_force は GTC / DAY")
+    if ex["on_stop_failure"] not in ("flatten", "halt"):
+        raise ValueError("executor.on_stop_failure は flatten / halt")
     if data["backtest"]["market_cap_proxy"] not in ("current_shares", "none"):
         raise ValueError("backtest.market_cap_proxy は current_shares / none")
     return Config(data)

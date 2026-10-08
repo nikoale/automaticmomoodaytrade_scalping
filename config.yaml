@@ -102,8 +102,23 @@ moomoo:                          # フェーズ 3 以降で使用 (発注・日�
   port: 11111
   security_firm: FUTUJP
   acc_id: 0                      # 0 = 米国株の取引権限がある最初の口座
-  trd_env: SIMULATE              # SIMULATE のみ。REAL は allow_real と起動時の確認の二重ロック (フェーズ 3)
+  trd_env: SIMULATE              # SIMULATE のみ。REAL は allow_real: true と起動時の確認 (コマンドで入力) の二重ロック。画面からは REAL で発注できない
   allow_real: false
+
+executor:                        # フェーズ 3: 発注・リスク管理 (※実機の模擬口座で要確認)
+  state_dir: trade               # data.dir の下。建玉・注文・帳簿を state_SIMULATE.json に保存
+  # 翌寄り付きの成行をいつ出すか:
+  #   reserve = 引け後の処理 (朝) で予約する。予約を受け付けなければ、寄り付き後の処理で出す
+  #   at_open = 寄り付き後の処理で出す
+  order_timing: reserve
+  stop_time_in_force: GTC        # 逆指値は取り消すまで有効 (GTC)。DAY にすると毎日入れ直しが要る
+  fill_wait_sec: 300             # 寄り付き後の処理で約定を待つ最大秒数。過ぎたら取り消して停止
+  poll_sec: 10
+  on_stop_failure: flatten       # 逆指値を入れられない建玉: flatten = 成行で売って停止 / halt = 停止だけ
+  max_orders_per_run: 12         # 1 回の処理でこれを超えて注文しようとしたら停止 (暴走防止)
+  watchlist_max_age_days: 10     # これより古い監視リストでは新規エントリーしない
+  earnings_refresh_days: 14      # 毎日、建玉の決算日を決算カレンダーで取り直す日数
+  test_symbol: SPY               # 発注機能の確認 (模擬口座) に使う銘柄
 
 schedule:                        # フェーズ 4 (runner) で使用
   timezone: Asia/Tokyo

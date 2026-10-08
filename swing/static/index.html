@@ -129,7 +129,7 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
         <button id="btnPwDelete">キーチェーンから削除</button>
       </div>
       <div class="hint">「正しいか確認」は実口座のロックを解除できるか試して、すぐにロックし直すだけです（注文はしません）。
-        模擬口座ではパスワードは不要です。実口座での注文はまだ作っていません（あなたが許可してから）。</div>
+        模擬口座ではパスワードは不要です。実口座での注文は二重ロックで止めてあり、この画面からは出せません。</div>
       <div id="pwMsg" class="hint"></div>
     </div>
 
@@ -138,10 +138,10 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
       <table class="status-table">
         <tr><td>1. 週次スクリーナー</td><td>✅ できた（実機では未確認）</td></tr>
         <tr><td>2. 戦略・バックテスト</td><td>✅ できた（実データの結果はまだ）</td></tr>
-        <tr><td>3. 発注（模擬口座）</td><td>⏸ 未実装・あなたの判断待ち</td></tr>
-        <tr><td>4. 毎日の自動実行</td><td>⏸ 未実装</td></tr>
+        <tr><td>3. 発注（模擬口座）</td><td>🔧 できた（模擬口座での実機確認はまだ）</td></tr>
+        <tr><td>4. 毎日の自動実行</td><td>⏸ 未実装（今はボタンを手で押す）</td></tr>
       </table>
-      <div class="hint">この画面からは発注しません。</div>
+      <div class="hint">この画面から出せるのは模擬口座の注文だけです。実口座の注文は、あなたが許可するまで有効にしません。</div>
     </div>
   </div>
 
@@ -150,6 +150,7 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
     <div class="tabs">
       <button data-tab="watch" class="on">今週の監視リスト</button>
       <button data-tab="acct">口座</button>
+      <button data-tab="trade">発注（模擬口座）</button>
       <button data-tab="bt">バックテスト</button>
       <button data-tab="data">データ</button>
       <button data-tab="log">ログ</button>
@@ -190,6 +191,29 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
       </div>
     </section>
 
+    <section id="tab-trade" style="display:none">
+      <div id="tradeHalt"></div>
+      <div class="card">
+        <h2>発注（模擬口座・SIMULATE）</h2>
+        <div id="tradeMeta" class="kv"></div>
+        <ol class="steps hint">
+          <li><b>最初に1回</b>「発注機能の確認」: 模擬口座で注文の出し方が通るか試します（米国の取引時間中に押すと逆指値まで確かめます）</li>
+          <li><b>毎朝（7:30 ごろ・米国の引け後）</b>「引け後の処理」: 照合 → 損切りの更新 → 手仕舞い・新規の判定 → 翌寄り付きの注文を予約</li>
+          <li><b>寄り付き直後</b>「寄り付き後の処理」: 予約できなかった注文を出し、約定を待って、すぐ逆指値を入れます</li>
+        </ol>
+        <div class="row" style="margin-top:6px">
+          <button id="btnTradeCheck">発注機能の確認</button>
+          <button id="btnTradeClose" class="primary">引け後の処理</button>
+          <button id="btnTradeOpen" class="primary">寄り付き後の処理</button>
+        </div>
+        <div class="hint">毎日の自動実行（フェーズ 4）はまだないので、今はボタンを押したときだけ動きます。押し忘れても、証券会社側の逆指値は残っています。</div>
+      </div>
+      <div class="card"><h2>ボットの建玉</h2><div class="tablewrap"><table id="tradePos"></table></div></div>
+      <div class="card"><h2>予定・発注中の注文</h2><div class="tablewrap"><table id="tradeOrders"></table></div></div>
+      <div class="card"><h2>最近の取引</h2><div class="tablewrap"><table id="tradeTrades"></table></div></div>
+      <div class="card"><h2>発注機能の確認の結果</h2><div id="tradeCap"></div></div>
+    </section>
+
     <section id="tab-bt" style="display:none">
       <div class="card">
         <h2>バックテスト（過去の成績の確認）</h2>
@@ -226,7 +250,7 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
 const TOKEN = "__TOKEN__";
 const $ = (id) => document.getElementById(id);
 let logSeq = 0, last = null, settingsLoaded = false, lastJobKey = null;
-const REASONS = { stop: "損切り", trailing_stop: "トレーリング", time_exit: "時間切れ", earnings: "決算前", index_filter: "指数フィルター", end_of_test: "期間終了" };
+const REASONS = { stop: "損切り", trailing_stop: "トレーリング", time_exit: "時間切れ", earnings: "決算前", index_filter: "指数フィルター", end_of_test: "期間終了", no_stop: "逆指値が入らず売却" };
 
 async function api(path, body) {
   const opt = { headers: { "X-Token": TOKEN, "Content-Type": "application/json" } };
@@ -240,7 +264,7 @@ function banner(msg, kind) { const b = $("banner"); b.className = msg ? "banner 
 
 document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
   document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
-  for (const t of ["watch", "acct", "bt", "data", "log"]) $("tab-" + t).style.display = b.dataset.tab === t ? "" : "none";
+  for (const t of ["watch", "acct", "trade", "bt", "data", "log"]) $("tab-" + t).style.display = b.dataset.tab === t ? "" : "none";
 });
 
 async function job(name) {
@@ -249,6 +273,14 @@ async function job(name) {
   poll();
 }
 $("btnCheck").onclick = () => job("check");
+$("btnTradeCheck").onclick = () => job("trade_check");
+$("btnTradeClose").onclick = () => job("trade_close");
+$("btnTradeOpen").onclick = () => job("trade_open");
+async function tradeResume() {
+  if (!confirm("停止の原因を確かめましたか？（moomoo アプリで注文と保有株を見て、ボットの記録と合っているか）\n解除すると、次の処理から注文を出します。")) return;
+  const r = await api("/api/trade_resume", {});
+  if (!r.ok) banner(r.error, "err"); poll();
+}
 async function pwAction(action) {
   const pw = $("pwInput").value;
   if ((action === "keychain" || action === "session") && !pw) { $("pwMsg").textContent = "パスワードを入力してください"; return; }
@@ -286,7 +318,7 @@ $("btnSave").onclick = saveSettings;
 
 function renderJob(j) {
   const busy = j && j.state === "running";
-  for (const id of ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn", "btnAccount", "btnPwVerify"]) $(id).disabled = busy;
+  for (const id of ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn", "btnAccount", "btnPwVerify", "btnTradeCheck", "btnTradeClose", "btnTradeOpen"]) $(id).disabled = busy;
   const pill = $("jobPill");
   if (!j) { pill.className = "pill"; pill.textContent = "待機中"; return; }
   const m = Math.floor(j.elapsed / 60), s = j.elapsed % 60, t = m ? `${m}分${s}秒` : `${s}秒`;
@@ -301,6 +333,7 @@ function renderJob(j) {
     if (j.state === "done" && j.name.startsWith("backtest")) document.querySelector('[data-tab=bt]').click();
     if (j.state === "done" && j.name === "screen") document.querySelector('[data-tab=watch]').click();
     if (j.state === "done" && j.name === "account") document.querySelector('[data-tab=acct]').click();
+    if (j.name.startsWith("trade_") && j.state !== "running") document.querySelector('[data-tab=trade]').click();
     if (j.name === "verify_password") $("pwMsg").textContent = j.state === "done" ? "✅ " + j.result.message : (j.state === "error" ? "❌ " + j.error : "");
   }
 }
@@ -393,6 +426,46 @@ function renderAccount(a, cap) {
       <td class="${cls(p.pl_ratio)}">${p.pl_ratio === null ? "—" : (p.pl_ratio > 0 ? "+" : "") + fmt(p.pl_ratio, 2) + "%"}</td></tr>`).join("");
 }
 
+const KIND = { entry: "買い", exit: "売り" };
+function renderTrade(t) {
+  if (!t) return;
+  if (t.error) { $("tradeMeta").textContent = t.error; return; }
+  const h = t.halt || {};
+  $("tradeHalt").innerHTML = h.on ? `<div class="banner on err" style="display:block">⛔ 発注を止めています（${esc(h.time || "")}）<br>${esc(h.reason)}<br>
+    <small>新しい注文は出しません。証券会社側の逆指値は残っています。moomoo アプリで確かめてから解除してください。</small><br>
+    <button id="btnTradeResume" style="margin-top:6px">原因を確かめたので停止を解除</button></div>` : "";
+  if (h.on) $("btnTradeResume").onclick = tradeResume;
+  const ns = t.next_session || {};
+  const kv = [["口座", t.env_config === "SIMULATE" ? "模擬口座（SIMULATE）" : "⚠ config が " + esc(t.env_config) + "（画面からは発注しません）"],
+    ["ボットの資金", t.capital_usd == null ? "まだ始めていません（最初の処理で決まります）" : `${usd(t.equity_usd ?? t.capital_usd)} <small>（開始 ${usd(t.capital_usd)}・受渡済み現金 ${usd(t.cash_settled_usd)}）</small>`],
+    ["受渡待ち", (t.pending_sales || []).length ? t.pending_sales.map((x) => `${esc(x[0])} から ${usd(x[1])}`).join("、") : "なし"],
+    ["今週の損失上限", t.week && t.week.tripped ? "⛔ 達したので今週は新規なし" : "OK"],
+    ["次の寄り付き", ns.open_jst ? `${esc(ns.open_jst)}（引け ${esc(ns.close_jst)}）${ns.in_session ? "・今は取引時間中" : ""}` : "—"],
+    ["注文の出し方", t.order_timing === "reserve" ? "引け後の処理で予約（だめなら寄り付き後）" : "寄り付き後の処理で出す"],
+    ["前回の処理", `引け後 ${esc(t.last_close || "—")}・寄り付き後 ${esc(t.last_open || "—")}`]];
+  $("tradeMeta").innerHTML = kv.map(([k, v]) => `<div>${esc(k)}</div><div>${v}</div>`).join("");
+  const pos = Object.values(t.positions || {});
+  $("tradePos").innerHTML = pos.length ? `<tr><th>銘柄</th><th>株数</th><th>買値</th><th>損切り</th><th>逆指値</th><th>建玉日</th><th>次回決算</th></tr>` +
+    pos.map((p) => `<tr><td><b>${esc(p.symbol)}</b></td><td>${fmt(p.shares, 0)}</td><td>${usd(p.entry_price)}</td><td>${usd(p.stop)}${p.trailing ? " <small>トレーリング</small>" : ""}</td>
+      <td>${p.stop_order_id ? "✅ " + esc(p.stop_order_id) : "❌ なし"}</td><td>${esc(p.entry_date)}</td><td>${esc(p.next_earnings || "—")}</td></tr>`).join("")
+    : `<tr><td class="empty">建玉はありません</td></tr>`;
+  const od = t.orders || [];
+  $("tradeOrders").innerHTML = od.length ? `<tr><th>銘柄</th><th>売買</th><th>株数</th><th>執行日</th><th>理由</th><th>状態</th></tr>` +
+    od.map((o) => `<tr><td><b>${esc(o.symbol)}</b></td><td>${KIND[o.kind] || o.kind}</td><td>${fmt(o.qty, 0)}</td><td>${esc(o.for_date)}</td>
+      <td>${esc(REASONS[o.reason] || o.reason || (o.kind === "entry" ? "20日高値ブレイク" : ""))}</td><td>${o.order_id ? "発注済み " + esc(o.order_id) : "まだ（寄り付き後に出す）"}</td></tr>`).join("")
+    : `<tr><td class="empty">ありません</td></tr>`;
+  const tr = (t.trades || []).slice().reverse();
+  $("tradeTrades").innerHTML = tr.length ? `<tr><th>銘柄</th><th>買い</th><th>売り</th><th>株数</th><th>損益</th><th>理由</th></tr>` +
+    tr.map((x) => `<tr><td><b>${esc(x.symbol)}</b></td><td>${esc(x.entry_date)} ${usd(x.entry_price)}</td><td>${esc(x.exit_date)} ${usd(x.exit_price)}</td>
+      <td>${fmt(x.shares, 0)}</td><td class="${cls(x.pnl)}">${sgn(x.pnl, usd)}</td><td>${esc(REASONS[x.reason] || x.reason)}</td></tr>`).join("")
+    : `<tr><td class="empty">まだありません</td></tr>`;
+  const c = t.capability;
+  $("tradeCap").innerHTML = !c ? `<div class="hint">まだ確認していません。</div>` :
+    `<div class="hint">${esc(c.time)}・${c.regular_hours ? "取引時間中（逆指値まで確認）" : "取引時間外（逆指値は取引時間中に押すと確認します）"}・${c.ok ? "✅ すべて OK" : "⚠ 通らないものがあります"}</div>
+     <div class="tablewrap"><table>${c.steps.map((x) => `<tr><td style="text-align:left">${x.ok ? "✅" : "❌"} ${esc(x.name)}</td><td style="text-align:left">${esc(typeof x.detail === "object" && x.detail !== null ? JSON.stringify(x.detail) : (x.detail ?? ""))}</td></tr>`).join("")}</table></div>
+     ${c.order_timing_hint ? `<div class="hint">→ 時間外の成行予約: ${c.order_timing_hint === "reserve" ? "受け付けました（今の設定のままで OK）" : "受け付けませんでした（寄り付き後の処理で出します）"}</div>` : ""}`;
+}
+
 function renderPassword(p) {
   if (!p) return;
   const src = { session: "① この起動中だけ（メモリ）", keychain: "② キーチェーン", env: "環境変数" }[p.source];
@@ -416,7 +489,7 @@ async function poll() {
   last = st;
   $("clock").textContent = "日本時間 " + st.now_jst;
   renderSettings(st.settings); renderJob(st.job); renderWatch(st.watchlist); renderReport(st.report); renderData(st.data);
-  renderAccount(st.account, st.capital); renderPassword(st.password);
+  renderAccount(st.account, st.capital); renderPassword(st.password); renderTrade(st.trade);
   const lg = $("log");
   for (const l of st.logs) { const d = document.createElement("div"); d.className = l.level; d.textContent = l.msg; lg.appendChild(d); logSeq = l.id; }
   while (lg.childNodes.length > 1500) lg.removeChild(lg.firstChild);

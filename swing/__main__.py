@@ -7,6 +7,11 @@
   quota            moomoo の過去 K 線の取得枠を表示
   backtest         バックテスト一式 → reports/<日時>/report.md
   backtest --synthetic   擬似データでレポート作成の流れだけ確認 (成績に意味はない)
+  trade close      引け後の処理 (照合 → 逆指値 → 損切り更新・手仕舞い・新規エントリーの判定 → 予約)
+  trade open       寄り付き後の処理 (未発注の注文を出す → 約定を待つ → 逆指値)
+  trade status     保存されている建玉・注文・停止状態を表示 (接続しない)
+  trade resume     発注停止を解除する (原因を確かめてから)
+  trade check      発注機能の確認 (模擬口座だけ。指値・取消・成行の予約・逆指値・訂正)
 """
 from __future__ import annotations
 
@@ -90,6 +95,48 @@ def cmd_backtest(cfg, synthetic: bool) -> None:
     return out
 
 
+def confirm_real() -> bool:
+    """本番口座の 2 つ目のロック: 起動した人が決まった文を入力する。"""
+    from .broker import REAL_CONFIRM_PHRASE
+    if not sys.stdin.isatty():
+        print("本番口座の確認は、画面 (ターミナル) から人が入力する必要があります")
+        return False
+    print("\n!!! 本番口座 (REAL) で実際のお金の注文を出します !!!")
+    ans = input(f"よければ「{REAL_CONFIRM_PHRASE}」と入力してください: ").strip()
+    return ans == REAL_CONFIRM_PHRASE
+
+
+def cmd_trade(cfg, what: str, yes: bool = False) -> None:
+    import json as _json
+
+    from . import executor
+    env = str(cfg["moomoo"]["trd_env"]).upper()
+    if what == "status":
+        print(_json.dumps(executor.read_summary(cfg, env), ensure_ascii=False, indent=1, default=str))
+        return
+    if what == "resume":
+        st = executor.load_state(cfg, env)
+        if not st["halt"]["on"]:
+            print("停止していません")
+            return
+        print(f"停止の理由: {st['halt']['reason']}")
+        if not yes and input("原因を確かめましたか？ 解除するなら yes: ").strip() != "yes":
+            print("解除しませんでした")
+            return
+        st["halt"] = {"on": False, "reason": "", "time": None}
+        executor.save_state(cfg, env, st)
+        logging.getLogger("swing").warning("[停止解除] コマンドから解除しました")
+        return
+    with executor.Session(cfg, confirm=confirm_real) as ex:
+        if what == "close":
+            s = ex.run_close()
+        elif what == "open":
+            s = ex.run_open()
+        else:
+            s = executor.capability_check(cfg, ex.broker)
+    print(_json.dumps(s, ensure_ascii=False, indent=1, default=str))
+
+
 def main(argv=None) -> None:
     p = argparse.ArgumentParser(prog="swing", description="米国株スイング自動売買ボット")
     p.add_argument("-c", "--config", default=None)
@@ -107,6 +154,9 @@ def main(argv=None) -> None:
     g.add_argument("--no-browser", action="store_true")
     b = sub.add_parser("backtest")
     b.add_argument("--synthetic", action="store_true")
+    t = sub.add_parser("trade", help="フェーズ 3: 発注 (既定は模擬口座)")
+    t.add_argument("what", choices=["close", "open", "status", "resume", "check"])
+    t.add_argument("--yes", action="store_true", help="resume の確認を省略")
     a = p.parse_args(argv)
     cfg = config_mod.load(a.config)
     setup_logging(cfg, a.cmd, a.log_level)
@@ -124,6 +174,8 @@ def main(argv=None) -> None:
         print(f"過去 K 線の取得枠: 使用済み {used} / 残り {remain}")
     elif a.cmd == "backtest":
         print(cmd_backtest(cfg, a.synthetic) / "report.md")
+    elif a.cmd == "trade":
+        cmd_trade(cfg, a.what, a.yes)
     elif a.cmd == "gui":
         from .gui import serve
         serve(port=a.port, open_browser=not a.no_browser)
