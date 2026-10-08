@@ -33,6 +33,7 @@ fi
 
 echo "画面を開きます。ブラウザが開かない場合は表示された URL を開いてください。"
 echo "このウィンドウを閉じると止まります。"
-# データ取得やバックテストの途中で Mac がスリープしないようにする
-caffeinate -i .venv/bin/python -m swing gui
+# データ取得・バックテスト・自動実行の間、Mac がスリープしないようにする
+# (-i: 操作がなくても眠らない / -s: 電源につないでいる間は眠らない。ふたを閉じると眠るので注意)
+caffeinate -is .venv/bin/python -m swing gui
 read -r -p "終了しました。Enter キーで閉じます"

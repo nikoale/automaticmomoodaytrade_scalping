@@ -25,6 +25,8 @@ REQUIRED = {
     "risk": ["risk_per_trade_pct", "max_position_pct", "weekly_loss_limit_pct", "allow_fractional"],
     "executor": ["state_dir", "order_timing", "stop_time_in_force", "fill_wait_sec", "poll_sec", "on_stop_failure",
                  "max_orders_per_run", "watchlist_max_age_days", "earnings_refresh_days", "test_symbol"],
+    "schedule": ["daily_run", "open_run_delay_min", "open_run_max_late_min", "weekly_screen_day", "weekly_screen_time",
+                 "retry_count", "retry_min", "tick_sec", "notify"],
     "backtest": ["start", "end", "out_of_sample_years", "stress_periods", "market_cap_proxy", "report_dir"],
 }
 

@@ -136,3 +136,14 @@ def test_trade_tab_status_resume_and_real_refused(gui):
     assert call("/api/job", {"name": "trade_close"})[1]["ok"]
     st = wait("trade_close")
     assert st["job"]["state"] == "error" and "模擬口座" in st["job"]["error"]
+
+
+def test_auto_run_toggle_and_schedule_shown(gui):
+    app, call, _, _ = gui
+    _, st = call("/api/status")
+    assert st["auto"]["on"] is False and len(st["auto"]["upcoming"]) == 3
+    assert call("/api/auto", {"on": True})[1]["on"] is True
+    assert call("/api/status")[1]["auto"]["on"] is True
+    from swing import gui as g
+    assert g.App(app.config_path).auto_on()            # 画面を開き直してもオンのまま
+    call("/api/auto", {"on": False})

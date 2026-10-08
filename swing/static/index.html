@@ -90,6 +90,17 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
     </div>
 
     <div class="card">
+      <h2>自動実行</h2>
+      <div id="autoState" class="hint" style="margin-top:0"></div>
+      <button id="btnAuto" class="wide primary">自動実行をオンにする</button>
+      <div id="autoNext" class="kv" style="margin-top:8px"></div>
+      <div class="hint">オンにすると、この画面を開いている間（黒いウィンドウがある間）、予定の時刻に自動で
+        引け後の処理・寄り付き後の処理・週次スクリーナーを実行します（発注は模擬口座だけ）。
+        OpenD を起動してログインしたまま、Mac を電源につなぎ、ふたを閉じないでください（ふたを閉じるとスリープします）。
+        次に画面を開いたときも、オンのまま再開します。</div>
+    </div>
+
+    <div class="card">
       <h2>設定</h2>
       <div class="row">
         <div><label>運用資金（円）</label><input id="capital_jpy" type="number" step="1000"></div>
@@ -139,7 +150,7 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
         <tr><td>1. 週次スクリーナー</td><td>✅ できた（実機では未確認）</td></tr>
         <tr><td>2. 戦略・バックテスト</td><td>✅ できた（実データの結果はまだ）</td></tr>
         <tr><td>3. 発注（模擬口座）</td><td>🔧 できた（模擬口座での実機確認はまだ）</td></tr>
-        <tr><td>4. 毎日の自動実行</td><td>⏸ 未実装（今はボタンを手で押す）</td></tr>
+        <tr><td>4. 毎日の自動実行</td><td>🔧 できた（実機では未確認）</td></tr>
       </table>
       <div class="hint">この画面から出せるのは模擬口座の注文だけです。実口座の注文は、あなたが許可するまで有効にしません。</div>
     </div>
@@ -206,7 +217,7 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
           <button id="btnTradeClose" class="primary">引け後の処理</button>
           <button id="btnTradeOpen" class="primary">寄り付き後の処理</button>
         </div>
-        <div class="hint">毎日の自動実行（フェーズ 4）はまだないので、今はボタンを押したときだけ動きます。押し忘れても、証券会社側の逆指値は残っています。</div>
+        <div class="hint">左の「自動実行」をオンにすると、これらを予定の時刻に自動で押します（手で押しても構いません。同じ日の分は 2 回動きません）。</div>
         <details style="margin-top:8px"><summary class="hint">やり直したいとき</summary>
           <button id="btnTradeReset" class="wide">模擬口座の記録をリセット（ボットの注文を取り消して最初から）</button>
           <div class="hint">ボットが出した有効な注文（買い・売り・逆指値）を取り消し、ボットの資金・建玉の記録を最初からにします。
@@ -282,6 +293,21 @@ $("btnTradeCheck").onclick = () => job("trade_check");
 $("btnTradeClose").onclick = () => job("trade_close");
 $("btnTradeOpen").onclick = () => job("trade_open");
 $("btnTradeReset").onclick = () => { if (confirm("模擬口座のボットの注文を取り消して、記録を最初からにします。よろしいですか？")) job("trade_reset"); };
+$("btnAuto").onclick = async () => {
+  const on = !(last && last.auto && last.auto.on);
+  if (on && !confirm("自動実行をオンにします。この画面を開いている間、予定の時刻に模擬口座で自動で注文を出します。よろしいですか？")) return;
+  const r = await api("/api/auto", { on }); if (!r.ok) banner(r.error, "err"); poll();
+};
+function renderAuto(a) {
+  if (!a) return;
+  $("autoState").innerHTML = a.on ? "✅ <b>オン</b>（この画面を開いている間、自動で動きます）" : "オフ（ボタンを押したときだけ動きます）";
+  $("btnAuto").textContent = a.on ? "自動実行をオフにする" : "自動実行をオンにする";
+  $("btnAuto").className = a.on ? "wide" : "wide primary";
+  const R = { ok: "✅", error: "❌", busy: "…" };
+  const rows = (a.upcoming || []).map((x) => [`次の${x.label}`, esc(x.time)]);
+  for (const [k, v] of Object.entries(a.last || {})) rows.push([`前回 ${{ trade_close: "引け後", trade_open: "寄り付き後", screen: "週次" }[k] || k}`, `${R[v.result] || ""} ${esc(v.time)}（${esc(v.key)} の分）`]);
+  $("autoNext").innerHTML = rows.map(([k, v]) => `<div>${k}</div><div>${v}</div>`).join("");
+}
 async function tradeResume() {
   if (!confirm("停止の原因を確かめましたか？（moomoo アプリで注文と保有株を見て、ボットの記録と合っているか）\n解除すると、次の処理から注文を出します。")) return;
   const r = await api("/api/trade_resume", {});
@@ -501,7 +527,7 @@ async function poll() {
   last = st;
   $("clock").textContent = "日本時間 " + st.now_jst;
   renderSettings(st.settings); renderJob(st.job); renderWatch(st.watchlist); renderReport(st.report); renderData(st.data);
-  renderAccount(st.account, st.capital); renderPassword(st.password); renderTrade(st.trade);
+  renderAccount(st.account, st.capital); renderPassword(st.password); renderTrade(st.trade); renderAuto(st.auto);
   const lg = $("log");
   for (const l of st.logs) { const d = document.createElement("div"); d.className = l.level; d.textContent = l.msg; lg.appendChild(d); logSeq = l.id; }
   while (lg.childNodes.length > 1500) lg.removeChild(lg.firstChild);

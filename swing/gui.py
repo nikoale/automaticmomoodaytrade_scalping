@@ -74,6 +74,60 @@ class App:
         from .passwords import PasswordStore
         self.passwords = PasswordStore()
         threading.Thread(target=self._refresh_fx, daemon=True, name="fx").start()   # 今の為替 (裏で 1 回)
+        from .runner import Scheduler
+        self.scheduler = Scheduler(self.cfg, self._sched_run)
+        threading.Thread(target=self._auto_loop, daemon=True, name="auto").start()
+
+    # ---------------------------------------------------------------- 自動実行 (フェーズ 4)
+    def _auto_path(self) -> Path:
+        return config_mod.load(self.config_path).path("gui_auto.json")
+
+    def auto_on(self) -> bool:
+        try:
+            return bool(json.loads(self._auto_path().read_text(encoding="utf-8")).get("on"))
+        except (OSError, ValueError):
+            return False
+
+    def set_auto(self, on: bool) -> bool:
+        p = self._auto_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({"on": bool(on)}), encoding="utf-8")
+        log.warning("[自動実行] %s", "オンにしました (この画面を開いている間、予定の時刻に自動で動きます)" if on else "オフにしました")
+        return bool(on)
+
+    def _auto_loop(self) -> None:
+        while True:
+            try:
+                if self.auto_on():
+                    self.scheduler.tick()
+                sec = self.cfg()["schedule"]["tick_sec"]
+            except Exception as e:  # noqa: BLE001 - 自動実行のループは止めない
+                log.error("[自動実行] %s", e)
+                sec = 60
+            time.sleep(sec)
+
+    def _sched_run(self, name: str) -> str:
+        """スケジューラーから: 画面のジョブとして実行し、終わるまで待つ。"""
+        if self.running() or not self.start_job(name).get("ok"):
+            return "busy"
+        job = self.job
+        while job["state"] == "running":
+            time.sleep(1)
+        if job["state"] == "error":
+            return "error"
+        halt = (job.get("result") or {}).get("halt") or {}
+        if halt.get("on"):
+            from .runner import notify
+            notify(self.cfg(), "スイング bot: 発注停止", halt.get("reason", ""))
+        return "ok"
+
+    def auto_status(self) -> dict:
+        from .runner import upcoming
+        try:
+            up = upcoming(self.cfg(), datetime.now(calendar_us.TOKYO))
+        except Exception as e:  # noqa: BLE001
+            up = [{"label": "予定を計算できません", "time": str(e)}]
+        return {"on": self.auto_on(), "upcoming": up, "done": self.scheduler.done(), "last": self.scheduler.last}
 
     def _refresh_fx(self) -> None:
         from . import fx
@@ -331,7 +385,7 @@ class App:
         settings["account_env"] = self.load_settings().get("account_env", "REAL")
         return {"job": job, "logs": self.logs.since(since), "settings": settings,
                 "account": self.account, "capital": effective_capital(cfg, acc_total, acc_fx),
-                "password": self.passwords.status(), "trade": self.trade_status(),
+                "password": self.passwords.status(), "trade": self.trade_status(), "auto": self.auto_status(),
                 "data": self.data_status(), "watchlist": self.latest_watchlist(), "report": self.latest_report(),
                 "now_jst": datetime.now(calendar_us.TOKYO).strftime("%Y-%m-%d %H:%M")}
 
@@ -409,6 +463,8 @@ def make_handler(app: App):
                 if self.path == "/api/password":
                     return self._json({"ok": True, "password": app.password_action(body.get("action", ""),
                                                                                    body.get("password"))})
+                if self.path == "/api/auto":
+                    return self._json({"ok": True, "on": app.set_auto(bool(body.get("on")))})
                 if self.path == "/api/trade_resume":
                     if app.running():
                         return self._json({"ok": False, "error": "処理の実行中は解除できません"})

@@ -126,11 +126,16 @@ executor:                        # フェーズ 3: 発注・リスク管理 (※
   earnings_refresh_days: 14      # 毎日、建玉の決算日を決算カレンダーで取り直す日数
   test_symbol: SPY               # 発注機能の確認 (模擬口座) に使う銘柄
 
-schedule:                        # フェーズ 4 (runner) で使用
-  timezone: Asia/Tokyo
-  daily_run: "07:30"             # 日本時間。米国の引け (夏 5:00 / 冬 6:00 JST) の後
-  weekly_screen_day: Saturday
+schedule:                        # フェーズ 4: 自動実行 (すべて日本時間。夏時間・冬時間・米国の祝日は自動)
+  daily_run: "07:30"             # 引け後の処理。米国の引け (夏 5:00 / 冬 6:00) の後
+  open_run_delay_min: 3          # 寄り付き後の処理 = 寄り付き (夏 22:30 / 冬 23:30) の N 分後
+  open_run_max_late_min: 60      # 寄り付きから N 分を過ぎたら、その日の寄り付き後の処理はしない (遅すぎる約定を避ける)
+  weekly_screen_day: Saturday    # 週次スクリーナー
   weekly_screen_time: "09:00"
+  retry_count: 3                 # OpenD に接続できないなどで失敗したら、retry_min 分ごとに N 回まで試す
+  retry_min: 5
+  tick_sec: 30                   # 予定を確かめる間隔 (秒)
+  notify: true                   # Mac の通知 (発注停止・失敗のとき)
 
 logging:
   dir: ~/moomoo-swing/logs

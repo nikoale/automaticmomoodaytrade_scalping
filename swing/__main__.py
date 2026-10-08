@@ -12,6 +12,7 @@
   trade status     保存されている建玉・注文・停止状態を表示 (接続しない)
   trade resume     発注停止を解除する (原因を確かめてから)
   trade reset      模擬口座の記録をリセット (ボットの有効な注文を取り消して最初から)
+  run              フェーズ 4: 常駐して自動実行 (引け後の処理・寄り付き後の処理・週次スクリーナー)。VPS 用
   trade check      発注機能の確認 (模擬口座だけ。指値・取消・成行の予約・逆指値・訂正)
 """
 from __future__ import annotations
@@ -24,15 +25,40 @@ from datetime import datetime
 from . import config as config_mod
 
 
+class DailyFileHandler(logging.Handler):
+    """日付ごとのログファイル (logs/YYYYMMDD_<name>.log)。常駐していても日付が変われば新しいファイルに書く。"""
+
+    def __init__(self, log_dir, name: str):
+        super().__init__()
+        self.dir, self.name = log_dir, name
+        self.day, self.fh = None, None
+
+    def emit(self, record):
+        day = datetime.now().strftime("%Y%m%d")
+        try:
+            if day != self.day:
+                if self.fh:
+                    self.fh.close()
+                self.dir.mkdir(parents=True, exist_ok=True)
+                self.fh = open(self.dir / f"{day}_{self.name}.log", "a", encoding="utf-8")
+                self.day = day
+            self.fh.write(self.format(record) + "\n")
+            self.fh.flush()
+        except Exception:  # noqa: BLE001
+            self.handleError(record)
+
+    def close(self):
+        if self.fh:
+            self.fh.close()
+        super().close()
+
+
 def setup_logging(cfg, name: str, level: str = "INFO") -> None:
-    log_dir = cfg.log_dir()
-    log_dir.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=getattr(logging, level),
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        handlers=[logging.StreamHandler(sys.stdout),
-                  logging.FileHandler(log_dir / f"{datetime.now():%Y%m%d}_{name}.log", encoding="utf-8")],
-    )
+    fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s")
+    handlers = [logging.StreamHandler(sys.stdout), DailyFileHandler(cfg.log_dir(), name)]
+    for h in handlers:
+        h.setFormatter(fmt)
+    logging.basicConfig(level=getattr(logging, level), handlers=handlers)
 
 
 def cmd_fetch(cfg, what: str, limit: int | None) -> None:
@@ -157,6 +183,7 @@ def main(argv=None) -> None:
     g.add_argument("--no-browser", action="store_true")
     b = sub.add_parser("backtest")
     b.add_argument("--synthetic", action="store_true")
+    sub.add_parser("run", help="フェーズ 4: 常駐して自動実行")
     t = sub.add_parser("trade", help="フェーズ 3: 発注 (既定は模擬口座)")
     t.add_argument("what", choices=["close", "open", "status", "resume", "check", "reset"])
     t.add_argument("--yes", action="store_true", help="resume の確認を省略")
@@ -177,11 +204,14 @@ def main(argv=None) -> None:
         print(f"過去 K 線の取得枠: 使用済み {used} / 残り {remain}")
     elif a.cmd == "backtest":
         print(cmd_backtest(cfg, a.synthetic) / "report.md")
+    elif a.cmd == "run":
+        from .runner import run_forever
+        run_forever(lambda: config_mod.load(a.config), confirm=confirm_real)
     elif a.cmd == "trade":
         cmd_trade(cfg, a.what, a.yes)
     elif a.cmd == "gui":
         from .gui import serve
-        serve(port=a.port, open_browser=not a.no_browser)
+        serve(port=a.port, open_browser=not a.no_browser, config_path=a.config)
 
 
 if __name__ == "__main__":

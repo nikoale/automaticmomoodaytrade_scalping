@@ -14,7 +14,7 @@
 | 2 | 戦略 `swing/strategy.py` / バックテスト `swing/backtest.py` / レポート `swing/report.py` | **実装済み・テスト済み**（手作りデータ・擬似データ）。**実データでのバックテスト結果は未作成** |
 | 2 | 資金管理 `swing/risk.py`（サイズ・手数料・T+1・週次損失上限） | バックテストで使う部分は実装済み・テスト済み |
 | 3 | 発注 `swing/executor.py` / `swing/broker.py`（SIMULATE、証券会社側の逆指値、照合・停止、REAL の二重ロック） | **実装済み・テスト済み**（証券会社の偽物で）。**実機の OpenD・模擬口座では未検証**（まず GUI の「発注機能の確認」で確かめる） |
-| 4 | 常駐 `runner.py`（毎日の自動実行・スケジュール） | **未実装**（今は GUI のボタンかコマンドで手動実行。日次のサマリー JSON はフェーズ 3 で出力済み） |
+| 4 | 自動実行 `swing/runner.py`（画面の「自動実行」/ `python -m swing run`）・毎日のまとめ・日付別ログ | **実装済み・テスト済み**（時刻計算・二重実行防止・再試行）。**実機の Mac・VPS での長時間運転は未検証** |
 
 要確認事項は [docs/要確認事項.md](docs/要確認事項.md)。
 
@@ -60,6 +60,8 @@
 | `swing/account.py` | 口座の残高・保有株の読み込み（読むだけ）と、ボットが使う資金の計算 |
 | `swing/broker.py` | OpenD の発注・訂正・取消・照会（薄いラッパー）と REAL の二重ロック |
 | `swing/executor.py` | フェーズ 3: 照合 → 逆指値 → 判断 → 発注。状態は `~/moomoo-swing/data/trade/state_SIMULATE.json` |
+| `swing/runner.py` | フェーズ 4: 自動実行の予定（日本時間・夏時間・祝日）と常駐 |
+| `swing/fx.py` | 今の為替（口座 → Yahoo の USD/JPY → 設定値） |
 | `swing/passwords.py` | 取引パスワードの保管（キーチェーン / この起動中だけ / 環境変数） |
 | `swing/gui.py` / `swing/static/index.html` | ブラウザで操作する画面 |
 | `start.command` | Mac でダブルクリックして画面を起動 |
@@ -192,40 +194,60 @@ python -m swing trade resume   # 発注停止の解除（原因を確かめて�
 どちらか一方だけでは発注しない。GUI は 2 の確認を渡さないので、画面から本番口座の注文は出せない。
 REAL では取引パスワード（キーチェーン / 環境変数）でロック解除してから発注する。状態ファイルは `state_REAL.json`（模擬口座とは別）。
 
-## VPS 常駐（フェーズ 4 で実装予定）
+## 毎日の自動実行（フェーズ 4）
 
-毎日の自動実行 (`runner.py`) は未実装。今は `trade close` / `trade open` を手で実行する（下の cron 例はフェーズ 4 で使う予定）。
+予定（すべて日本時間。米国の夏時間・冬時間・祝日は自動。`config.yaml` の `schedule:`）:
 
-cron の例（VPS のタイムゾーンを Asia/Tokyo にしている場合）:
+| 処理 | 時刻 |
+|---|---|
+| 引け後の処理 (`trade close`) | 毎日 7:30（米国の取引日の引けの後） |
+| 寄り付き後の処理 (`trade open`) | 米国の取引日の寄り付き + 3 分（夏 22:33 / 冬 23:33）。寄り付きから 60 分を過ぎたらその日はしない |
+| 週次スクリーナー (`screen`) | 土曜 9:00（日曜までに起きれば遅れて実行） |
 
-```cron
-# 毎週土曜 9:00 (日本時間) に週次スクリーナー
-0 9 * * 6  cd /opt/swing && .venv/bin/python -m swing screen >> logs/cron.log 2>&1
-# 平日の翌朝 7:30 (日本時間) に日次処理  ※runner は未実装
-# 30 7 * * 2-6  cd /opt/swing && .venv/bin/python -m swing daily >> logs/cron.log 2>&1
+- 「どの取引日の分を済ませたか」を `~/moomoo-swing/data/runner_state.json` に記録し、同じ分は 2 回動かさない。手で押したあとに自動でも動いた場合は、照合と注文の目印で二重発注を防ぐ（引け後の処理は同じ取引日の分を 2 回判断しない）
+- OpenD に接続できないなどで失敗したら、5 分ごとに 3 回まで試す。発注停止になった・あきらめたときは Mac の通知を出す
+- 毎回のまとめ: `~/moomoo-swing/data/trade/summary_SIMULATE_YYYYMMDD.md`（建玉と損益・予約注文・停止の状態）と同名の `.json`
+
+### Mac（画面から）
+
+画面の左の「自動実行」をオンにする。画面を開いている間（`start.command` の黒いウィンドウがある間）動き、次に開いたときもオンのまま。
+OpenD を起動・ログインしたまま、Mac を電源につなぎ、ふたは閉じない（`caffeinate -is` でスリープは防ぐが、ふたを閉じると眠る）。
+画面からの自動実行は模擬口座だけ。
+
+### VPS（Linux・常駐）
+
+```bash
+python -m swing run      # 常駐して予定の時刻に実行 (本番口座なら起動時に 1 回だけ確認の入力)
 ```
 
-systemd timer の例:
+systemd の例（OpenD のコマンドライン版も別のサービスで常駐させる）:
 
 ```ini
-# /etc/systemd/system/swing-screen.service
+# /etc/systemd/system/swing.service
+[Unit]
+After=network-online.target opend.service
 [Service]
-Type=oneshot
 WorkingDirectory=/opt/swing
-ExecStart=/opt/swing/.venv/bin/python -m swing screen
-
-# /etc/systemd/system/swing-screen.timer
-[Timer]
-OnCalendar=Sat *-*-* 09:00:00 Asia/Tokyo
-Persistent=true
+ExecStart=/opt/swing/.venv/bin/python -m swing run
+Restart=on-failure
+RestartSec=60
+Environment=TZ=Asia/Tokyo
 [Install]
-WantedBy=timers.target
+WantedBy=multi-user.target
 ```
 
-日次処理は「日本時間 7:30」に固定すると、米国の夏時間（引け 5:00 JST）・冬時間（6:00 JST）のどちらでも引け後になります。
-実行時には `calendar_us.last_completed_session()` で「引けまで終わった直近の取引日」を判定するので、休場日や時刻のずれにも対応します。
+本番口座 (REAL) は起動時の確認入力が要るので、systemd では起動できない（意図どおり。模擬口座で動かす）。
+
+cron で 1 回ずつ動かす場合（常駐の代わり。VPS のタイムゾーンを Asia/Tokyo にしている場合）:
+
+```cron
+30 7 * * *    cd /opt/swing && .venv/bin/python -m swing trade close >> logs/cron.log 2>&1
+33 22 * * 1-5 cd /opt/swing && .venv/bin/python -m swing trade open  >> logs/cron.log 2>&1   # 夏時間
+33 23 * * 1-5 cd /opt/swing && .venv/bin/python -m swing trade open  >> logs/cron.log 2>&1   # 冬時間 (取引時間外なら何もしない)
+0 9 * * 6     cd /opt/swing && .venv/bin/python -m swing screen      >> logs/cron.log 2>&1
+```
 
 ## ログ
 
-`~/moomoo-swing/logs/YYYYMMDD_<コマンド>.log` に日付別で出力。スクリーナーは各段階の残り銘柄数・決算日が取れない銘柄（要確認）・
+`~/moomoo-swing/logs/YYYYMMDD_<コマンド>.log` に日付別で出力（常駐していても日付が変われば新しいファイル）。発注の判断（照合・約定・損切り更新・手仕舞い・エントリー・見送り・停止の理由）もここに残る。スクリーナーは各段階の残り銘柄数・決算日が取れない銘柄（要確認）・
 選ばれた銘柄の数値を、バックテストは判断ログ（候補・エントリー・損切り更新・手仕舞い・見送り）を CSV にも出力します。

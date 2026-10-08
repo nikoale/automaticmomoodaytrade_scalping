@@ -265,7 +265,12 @@ class Executor:
         keep = []
         for o in self.st["orders"]:
             if not o.get("order_id"):
-                keep.append(o)          # まだ出していない (予約できなかった) 注文
+                over = now >= calendar_us.session_times_jst(date.fromisoformat(o["for_date"]))[1]
+                if over:                # 出せないまま執行日が終わった → 捨てる (売りは逆指値が残っているので次の判断で)
+                    log.warning("[期限切れ] %s の%s注文は %s に出せませんでした (取り消し扱い)", o["symbol"],
+                                "買い" if o["kind"] == "entry" else "売り", o["for_date"])
+                else:
+                    keep.append(o)      # まだ出していない (予約できなかった) 注文
                 continue
             b = self.broker.order(o["order_id"])
             if b is None or b["status"] in UNKNOWN:
@@ -705,7 +710,49 @@ class Executor:
         self.save()
         out = self.cfg.path(self.ex["state_dir"], f"summary_{self.env}_{d:%Y%m%d}.json")
         out.write_text(json.dumps(s, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        out.with_suffix(".md").write_text(summary_text(s), encoding="utf-8")
         return s
+
+
+def summary_text(s: dict) -> str:
+    """毎日のまとめ (人が読む用): 建玉と損益、翌日の予約注文、停止の状態。"""
+    env = "模擬口座" if s["env"] == "SIMULATE" else "本番口座"
+    L = [f"# スイング bot まとめ {s['date']}（{env}・{s['time']}）", ""]
+    h = s["halt"]
+    L.append(f"**⛔ 発注停止中**: {h['reason']}（{h['time']}）" if h.get("on") else "発注: 通常どおり")
+    eq, cap = s.get("equity_usd"), s.get("capital_usd")
+    if cap:
+        L.append(f"ボットの資金: ${eq or cap:,.2f}（開始 ${cap:,.2f}・{(((eq or cap) / cap) - 1) * 100:+.2f}%）"
+                 f"・受渡済み現金 ${s['cash_settled_usd']:,.2f}")
+    if s["week"].get("tripped"):
+        L.append("今週の損失上限に達したので、今週は新規エントリーなし")
+    L += ["", "## 建玉", ""]
+    if s["positions"]:
+        L.append("| 銘柄 | 株数 | 買値 | 損切り | 逆指値の注文 | 建玉日 | 次回決算 |")
+        L.append("|---|---:|---:|---:|---|---|---|")
+        for p in s["positions"].values():
+            L.append(f"| {p['symbol']} | {p['shares']:g} | {p['entry_price']:.2f} | {p['stop']:.2f}"
+                     f"{' (トレーリング)' if p.get('trailing') else ''} | {p.get('stop_order_id') or '❌ なし'} | "
+                     f"{p['entry_date']} | {p.get('next_earnings') or '—'} |")
+    else:
+        L.append("なし")
+    L += ["", "## 予約・発注中の注文", ""]
+    if s["orders"]:
+        for o in s["orders"]:
+            L.append(f"- {o['for_date']} {o['symbol']} {'買い' if o['kind'] == 'entry' else '売り'} {o['qty']:g} 株"
+                     f"（{o.get('reason') or '20日高値ブレイク'}・{'発注済み ' + o['order_id'] if o.get('order_id') else '未発注'}）")
+    else:
+        L.append("なし")
+    L += ["", "## 最近の取引", ""]
+    tr = s.get("trades_recent") or []
+    if tr:
+        for t in tr[-10:]:
+            L.append(f"- {t['symbol']} {t['entry_date']} {t['entry_price']:.2f} → {t['exit_date']} {t['exit_price']:.2f}"
+                     f" × {t['shares']:g} 株: {t['pnl']:+.2f} ドル（{t['reason']}）")
+        L.append(f"- 合計（直近 {len(tr)} 件）: {sum(t['pnl'] for t in tr):+.2f} ドル")
+    else:
+        L.append("まだありません")
+    return "\n".join(L) + "\n"
 
 
 def _val(ind: dict, k: str, i: int, s: str):
