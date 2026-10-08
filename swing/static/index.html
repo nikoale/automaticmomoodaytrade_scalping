@@ -115,6 +115,24 @@ img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); back
     </div>
 
     <div class="card">
+      <h2>取引パスワード（実口座用）</h2>
+      <div id="pwStatus" class="hint" style="margin-top:0"></div>
+      <label>moomoo の取引パスワード</label>
+      <input id="pwInput" type="password" autocomplete="off" placeholder="ここに入力（画面にもファイルにも残りません）">
+      <button id="btnPwKeychain" class="wide primary">② キーチェーンに保存（おすすめ）</button>
+      <div class="hint">一度保存すれば、次からは聞かれずに起動します。Mac の安全な保管庫に入ります。</div>
+      <button id="btnPwSession" class="wide">① この起動中だけ使う</button>
+      <div class="hint">画面を閉じたり Mac を再起動したら、また入力が必要です。</div>
+      <div class="row" style="margin-top:10px">
+        <button id="btnPwVerify">正しいか確認</button>
+        <button id="btnPwDelete">キーチェーンから削除</button>
+      </div>
+      <div class="hint">「正しいか確認」は実口座のロックを解除できるか試して、すぐにロックし直すだけです（注文はしません）。
+        模擬口座ではパスワードは不要です。実口座での注文はまだ作っていません（あなたが許可してから）。</div>
+      <div id="pwMsg" class="hint"></div>
+    </div>
+
+    <div class="card">
       <h2>進み具合</h2>
       <table class="status-table">
         <tr><td>1. 週次スクリーナー</td><td>✅ できた（実機では未確認）</td></tr>
@@ -229,6 +247,20 @@ async function job(name) {
   poll();
 }
 $("btnCheck").onclick = () => job("check");
+async function pwAction(action) {
+  const pw = $("pwInput").value;
+  if ((action === "keychain" || action === "session") && !pw) { $("pwMsg").textContent = "パスワードを入力してください"; return; }
+  if (action === "delete_keychain" && !confirm("キーチェーンから取引パスワードを削除しますか？")) return;
+  const r = await api("/api/password", { action, password: pw });
+  $("pwInput").value = "";              // 入力欄にも残さない
+  $("pwMsg").textContent = r.ok ? { keychain: "キーチェーンに保存しました", session: "この起動中だけ使います",
+    delete_keychain: "キーチェーンから削除しました" }[action] || "" : r.error;
+  poll();
+}
+$("btnPwKeychain").onclick = () => pwAction("keychain");
+$("btnPwSession").onclick = () => pwAction("session");
+$("btnPwDelete").onclick = () => pwAction("delete_keychain");
+$("btnPwVerify").onclick = () => job("verify_password");
 $("btnAccount").onclick = () => job("account");
 $("account_env").onchange = async () => { await saveSettings(); };
 $("btnScreen").onclick = () => job("screen");
@@ -246,7 +278,7 @@ $("btnSave").onclick = saveSettings;
 
 function renderJob(j) {
   const busy = j && j.state === "running";
-  for (const id of ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn", "btnAccount"]) $(id).disabled = busy;
+  for (const id of ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn", "btnAccount", "btnPwVerify"]) $(id).disabled = busy;
   const pill = $("jobPill");
   if (!j) { pill.className = "pill"; pill.textContent = "待機中"; return; }
   const m = Math.floor(j.elapsed / 60), s = j.elapsed % 60, t = m ? `${m}分${s}秒` : `${s}秒`;
@@ -261,6 +293,7 @@ function renderJob(j) {
     if (j.state === "done" && j.name.startsWith("backtest")) document.querySelector('[data-tab=bt]').click();
     if (j.state === "done" && j.name === "screen") document.querySelector('[data-tab=watch]').click();
     if (j.state === "done" && j.name === "account") document.querySelector('[data-tab=acct]').click();
+    if (j.name === "verify_password") $("pwMsg").textContent = j.state === "done" ? "✅ " + j.result.message : (j.state === "error" ? "❌ " + j.error : "");
   }
 }
 function renderCheck(r) {
@@ -351,6 +384,16 @@ function renderAccount(a, cap) {
       <td class="${cls(p.pl_ratio)}">${p.pl_ratio === null ? "—" : (p.pl_ratio > 0 ? "+" : "") + fmt(p.pl_ratio, 2) + "%"}</td></tr>`).join("");
 }
 
+function renderPassword(p) {
+  if (!p) return;
+  const src = { session: "① この起動中だけ（メモリ）", keychain: "② キーチェーン", env: "環境変数" }[p.source];
+  let s = src ? `✅ 設定済み：${src}` : "未設定（模擬口座だけなら不要です）";
+  if (p.keychain_saved && p.source !== "keychain") s += "・キーチェーンにも保存あり";
+  if (!p.keychain_available) s += `・${p.keychain_note}`;
+  $("pwStatus").textContent = s;
+  $("btnPwKeychain").disabled = !p.keychain_available; $("btnPwDelete").disabled = !p.keychain_saved;
+}
+
 function renderData(d) {
   $("dataStatus").innerHTML = "";
   const rows = [["銘柄リスト", d.universe ? `${fmt(d.universe, 0)} 銘柄` : "未取得"], ["日足", d.prices ? `${fmt(d.prices, 0)} 銘柄（最終日 ${d.last_date || "—"}）` : "未取得"],
@@ -364,7 +407,7 @@ async function poll() {
   last = st;
   $("clock").textContent = "日本時間 " + st.now_jst;
   renderSettings(st.settings); renderJob(st.job); renderWatch(st.watchlist); renderReport(st.report); renderData(st.data);
-  renderAccount(st.account, st.capital);
+  renderAccount(st.account, st.capital); renderPassword(st.password);
   const lg = $("log");
   for (const l of st.logs) { const d = document.createElement("div"); d.className = l.level; d.textContent = l.msg; lg.appendChild(d); logSeq = l.id; }
   while (lg.childNodes.length > 1500) lg.removeChild(lg.firstChild);

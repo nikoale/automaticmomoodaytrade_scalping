@@ -71,6 +71,8 @@ class App:
         self.job: dict | None = None
         self.job_lock = threading.Lock()
         self.account: dict | None = None      # 口座の残高 (メモリ上だけ。ファイルには保存しない)
+        from .passwords import PasswordStore
+        self.passwords = PasswordStore()
 
     # ---------------------------------------------------------------- 設定
     def settings_path(self) -> Path:
@@ -116,7 +118,7 @@ class App:
 
     def start_job(self, name: str) -> dict:
         jobs = {"check": self._job_check, "screen": self._job_screen, "fetch": self._job_fetch,
-                "account": self._job_account,
+                "account": self._job_account, "verify_password": self._job_verify_password,
                 "backtest": lambda: self._job_backtest(False), "backtest_synthetic": lambda: self._job_backtest(True)}
         if name not in jobs:
             return {"ok": False, "error": f"不明な処理: {name}"}
@@ -173,6 +175,32 @@ class App:
         with AccountReader(self.cfg(), env) as r:
             self.account = r.snapshot()
         return {"env": env, "positions": len(self.account["positions"])}
+
+    def _job_verify_password(self) -> dict:
+        from .passwords import verify
+        pw, src = self.passwords.get()
+        if not pw:
+            raise RuntimeError("取引パスワードが設定されていません")
+        ok, msg = verify(self.cfg(), pw)
+        log.info("取引パスワードの確認: %s", "OK" if ok else "NG")
+        if not ok:
+            raise RuntimeError(msg)
+        return {"message": msg, "source": src}
+
+    def password_action(self, action: str, pw: str | None) -> dict:
+        """① この起動中だけ / ② キーチェーン の保存・削除。応答にパスワードは含めない。"""
+        if action == "session":
+            self.passwords.use_for_session(pw or "")
+        elif action == "keychain":
+            self.passwords.save_keychain(pw or "")
+            self.passwords.forget_session()       # キーチェーンに入れたらメモリの方は消す
+        elif action == "forget_session":
+            self.passwords.forget_session()
+        elif action == "delete_keychain":
+            self.passwords.delete_keychain()
+        else:
+            raise ValueError(f"不明な操作: {action}")
+        return self.passwords.status()
 
     def _job_screen(self) -> dict:
         from .screener import run_weekly
@@ -243,11 +271,12 @@ class App:
         settings["account_env"] = self.load_settings().get("account_env", "REAL")
         return {"job": job, "logs": self.logs.since(since), "settings": settings,
                 "account": self.account, "capital": effective_capital(cfg, acc_total, acc_fx),
+                "password": self.passwords.status(),
                 "data": self.data_status(), "watchlist": self.latest_watchlist(), "report": self.latest_report(),
                 "now_jst": datetime.now(calendar_us.TOKYO).strftime("%Y-%m-%d %H:%M")}
 
 
-JOB_LABELS = {"check": "OpenD 接続チェック", "account": "口座の読み込み", "screen": "今週の監視リスト作成", "fetch": "過去データの取得",
+JOB_LABELS = {"check": "OpenD 接続チェック", "account": "口座の読み込み", "verify_password": "取引パスワードの確認", "screen": "今週の監視リスト作成", "fetch": "過去データの取得",
               "backtest": "バックテスト", "backtest_synthetic": "バックテスト (擬似データ)"}
 
 
@@ -315,6 +344,9 @@ def make_handler(app: App):
             try:
                 if self.path == "/api/job":
                     return self._json(app.start_job(body.get("name", "")))
+                if self.path == "/api/password":
+                    return self._json({"ok": True, "password": app.password_action(body.get("action", ""),
+                                                                                   body.get("password"))})
                 if self.path == "/api/settings":
                     return self._json({"ok": True, "settings": app.save_settings(body.get("settings") or {})})
             except Exception as e:  # noqa: BLE001
