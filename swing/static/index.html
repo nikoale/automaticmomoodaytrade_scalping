@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>米国株スイング bot</title>
+<style>
+:root {
+  --bg: #f4f6f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #e3e7ee;
+  --accent: #2f6fed; --accent-ink: #ffffff; --up: #0f9d6b; --down: #d6404a; --warn: #b97f00;
+  --chip: #eef1f6; --shadow: 0 1px 2px rgba(20,30,50,.06), 0 4px 16px rgba(20,30,50,.05);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #12151b; --panel: #1b2029; --text: #e8ebf1; --muted: #9aa3b5; --line: #2b313d; --chip: #252b36; --shadow: none; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--panel);
+  border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0; }
+.pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--chip); color: var(--muted); }
+.pill.run { background: rgba(185,127,0,.15); color: var(--warn); }
+.pill.ok { background: rgba(15,157,107,.14); color: var(--up); }
+.pill.err { background: rgba(214,64,74,.14); color: var(--down); }
+.spacer { flex: 1; }
+.layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 16px; padding: 16px 20px; max-width: 1500px; margin: 0 auto; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); padding: 12px 16px; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); margin-bottom: 16px; }
+.card h2 { font-size: 14px; margin: 0 0 10px; }
+label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+.row { display: flex; gap: 8px; } .row > * { flex: 1; min-width: 0; }
+button { font: inherit; border: 1px solid var(--line); background: var(--chip); color: var(--text); padding: 9px 14px;
+  border-radius: 8px; cursor: pointer; font-weight: 600; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.wide { width: 100%; margin-top: 10px; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: wrap; }
+.tabs button { background: transparent; border-color: transparent; color: var(--muted); }
+.tabs button.on { background: var(--panel); border-color: var(--line); color: var(--text); }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-weight: 600; }
+.tablewrap { overflow-x: auto; }
+.up { color: var(--up); } .down { color: var(--down); }
+.banner { padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; display: none; }
+.banner.on { display: block; } .banner.err { background: rgba(214,64,74,.12); color: var(--down); }
+.banner.run { background: rgba(185,127,0,.12); color: var(--warn); } .banner.info { background: var(--chip); color: var(--text); }
+.log { font: 12px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap; max-height: 560px; overflow-y: auto;
+  background: var(--bg); border-radius: 8px; padding: 10px; }
+.log .WARNING { color: var(--warn); } .log .ERROR { color: var(--down); }
+.steps { margin: 0; padding-left: 18px; } .steps li { margin: 4px 0; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+.kv div:nth-child(odd) { color: var(--muted); }
+.funnel { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; font-size: 12px; }
+.funnel span { background: var(--chip); padding: 3px 8px; border-radius: 6px; }
+img.chart { width: 100%; border-radius: 8px; border: 1px solid var(--line); background: #fff; margin-top: 10px; }
+.empty { color: var(--muted); padding: 24px 0; text-align: center; }
+.status-table td { text-align: left; white-space: normal; vertical-align: top; }
+.status-table td:first-child { white-space: nowrap; }
+#watchTable td:nth-child(2), #watchTable th:nth-child(2) { text-align: left; }
+.note { font-size: 12.5px; padding: 8px 10px; border-left: 3px solid var(--warn); background: var(--chip); border-radius: 4px; margin: 6px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>米国株スイング bot</h1>
+  <span id="jobPill" class="pill">待機中</span>
+  <span class="spacer"></span>
+  <span id="clock" class="hint"></span>
+</header>
+
+<div class="layout">
+  <div>
+    <div class="card">
+      <h2>① moomoo に接続</h2>
+      <div class="hint">OpenD を起動してログインしてから押してください。</div>
+      <button id="btnCheck" class="wide primary">OpenD に接続して確認</button>
+      <div id="checkOut" class="kv" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <h2>設定</h2>
+      <div class="row">
+        <div><label>運用資金（円）</label><input id="capital_jpy" type="number" step="1000"></div>
+        <div><label>為替（円/ドル）</label><input id="fx_rate_jpy_per_usd" type="number" step="0.5"></div>
+      </div>
+      <label>監視リストのデータ元</label>
+      <select id="screener_source">
+        <option value="moomoo">moomoo（OpenD・おすすめ）</option>
+        <option value="free">無料データ（Yahoo・全銘柄を自分で計算）</option>
+      </select>
+      <details style="margin-top:8px"><summary class="hint">OpenD の接続先</summary>
+        <div class="row">
+          <div><label>ホスト</label><input id="host"></div>
+          <div><label>ポート</label><input id="port" type="number"></div>
+        </div>
+      </details>
+      <button id="btnSave" class="wide">設定を保存</button>
+      <div id="saveMsg" class="hint"></div>
+    </div>
+
+    <div class="card">
+      <h2>進み具合</h2>
+      <table class="status-table">
+        <tr><td>1. 週次スクリーナー</td><td>✅ できた（実機では未確認）</td></tr>
+        <tr><td>2. 戦略・バックテスト</td><td>✅ できた（実データの結果はまだ）</td></tr>
+        <tr><td>3. 発注（模擬口座）</td><td>⏸ 未実装・あなたの判断待ち</td></tr>
+        <tr><td>4. 毎日の自動実行</td><td>⏸ 未実装</td></tr>
+      </table>
+      <div class="hint">この画面からは発注しません。</div>
+    </div>
+  </div>
+
+  <div>
+    <div id="banner" class="banner"></div>
+    <div class="tabs">
+      <button data-tab="watch" class="on">今週の監視リスト</button>
+      <button data-tab="bt">バックテスト</button>
+      <button data-tab="data">データ</button>
+      <button data-tab="log">ログ</button>
+    </div>
+
+    <section id="tab-watch">
+      <div class="card">
+        <h2>今週の監視リスト</h2>
+        <div class="hint">毎週（土曜の朝がおすすめ）押すと、その週に勢いのある銘柄を選び直します。moomoo の場合は OpenD が必要です。</div>
+        <button id="btnScreen" class="wide primary">今週の監視リストを作る</button>
+        <div id="watchMeta" class="hint" style="margin-top:10px"></div>
+        <div id="watchFunnel" class="funnel"></div>
+        <div id="watchNote"></div>
+        <div class="tablewrap"><table id="watchTable"></table></div>
+      </div>
+    </section>
+
+    <section id="tab-bt" style="display:none">
+      <div class="card">
+        <h2>バックテスト（過去の成績の確認）</h2>
+        <ol class="steps hint">
+          <li>先に「データ」タブで過去データを取得（初回だけ・数十分）</li>
+          <li>「バックテスト実行」を押す（数分）</li>
+        </ol>
+        <div class="row" style="margin-top:6px">
+          <button id="btnBacktest" class="primary">バックテスト実行</button>
+          <button id="btnBacktestSyn">擬似データで動作確認</button>
+        </div>
+      </div>
+      <div id="btResult"></div>
+    </section>
+
+    <section id="tab-data" style="display:none">
+      <div class="card">
+        <h2>過去データ（バックテスト用）</h2>
+        <div id="dataStatus" class="kv"></div>
+        <button id="btnFetch" class="wide primary">過去データを取得・更新する</button>
+        <div class="hint">Yahoo Finance から約15年分の日足・時価総額・決算日を取得します。初回は数十分かかります（2回目以降は差分だけ）。
+          途中で画面を閉じないでください。Mac がスリープしないよう電源につないでおくと安心です。</div>
+      </div>
+    </section>
+
+    <section id="tab-log" style="display:none">
+      <div class="card"><div id="log" class="log"></div></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const $ = (id) => document.getElementById(id);
+let logSeq = 0, last = null, settingsLoaded = false, lastJobKey = null;
+const REASONS = { stop: "損切り", trailing_stop: "トレーリング", time_exit: "時間切れ", earnings: "決算前", index_filter: "指数フィルター", end_of_test: "期間終了" };
+
+async function api(path, body) {
+  const opt = { headers: { "X-Token": TOKEN, "Content-Type": "application/json" } };
+  if (body !== undefined) { opt.method = "POST"; opt.body = JSON.stringify(body); }
+  return (await fetch(path, opt)).json();
+}
+const fmt = (v, d = 1) => v === null || v === undefined || Number.isNaN(v) ? "—" : Number(v).toLocaleString("ja-JP", { maximumFractionDigits: d, minimumFractionDigits: 0 });
+const cls = (v) => v > 0 ? "up" : v < 0 ? "down" : "";
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function banner(msg, kind) { const b = $("banner"); b.className = msg ? "banner on " + kind : "banner"; b.textContent = msg || ""; }
+
+document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b));
+  for (const t of ["watch", "bt", "data", "log"]) $("tab-" + t).style.display = b.dataset.tab === t ? "" : "none";
+});
+
+async function job(name) {
+  const r = await api("/api/job", { name });
+  if (!r.ok) banner(r.error, "err");
+  poll();
+}
+$("btnCheck").onclick = () => job("check");
+$("btnScreen").onclick = () => job("screen");
+$("btnFetch").onclick = () => job("fetch");
+$("btnBacktest").onclick = () => job("backtest");
+$("btnBacktestSyn").onclick = () => job("backtest_synthetic");
+$("btnSave").onclick = async () => {
+  const s = {}; for (const k of ["capital_jpy", "fx_rate_jpy_per_usd", "screener_source", "host", "port"]) s[k] = $(k).value;
+  const r = await api("/api/settings", { settings: s });
+  $("saveMsg").textContent = r.ok ? "保存しました（次の処理から使います）" : r.error;
+};
+
+function renderJob(j) {
+  const busy = j && j.state === "running";
+  for (const id of ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn"]) $(id).disabled = busy;
+  const pill = $("jobPill");
+  if (!j) { pill.className = "pill"; pill.textContent = "待機中"; return; }
+  const m = Math.floor(j.elapsed / 60), s = j.elapsed % 60, t = m ? `${m}分${s}秒` : `${s}秒`;
+  if (busy) { pill.className = "pill run"; pill.textContent = `実行中: ${j.label}（${t}）`; banner(`「${j.label}」を実行中です（${t}）。進み具合は「ログ」タブで見られます。`, "run"); }
+  else if (j.state === "error") { pill.className = "pill err"; pill.textContent = "エラー"; banner(`「${j.label}」でエラー: ${j.error}`, "err"); }
+  else { pill.className = "pill ok"; pill.textContent = `完了: ${j.label}`; }
+  const key = j.name + j.started + j.state;
+  if (key !== lastJobKey) {
+    lastJobKey = key;
+    if (j.state === "done") banner(`「${j.label}」が完了しました（${t}）。`, "info");
+    if (j.state === "done" && j.name === "check" && j.result) renderCheck(j.result);
+    if (j.state === "done" && j.name.startsWith("backtest")) document.querySelector('[data-tab=bt]').click();
+    if (j.state === "done" && j.name === "screen") document.querySelector('[data-tab=watch]').click();
+  }
+}
+function renderCheck(r) {
+  $("checkOut").innerHTML = "";
+  const rows = [["相場サーバ", r.qot_logined ? "✅ OK" : "❌ NG"], ["取引サーバ", r.trd_logined ? "✅ OK" : "❌ NG"],
+    ["米国株の相場権限", r.us_qot_right || "—"], ["米国市場", r.market_us || "—"],
+    ["過去データの取得枠", `使用 ${r.quota_used} ／ 残り ${r.quota_remain}`]];
+  for (const [k, v] of rows) { const a = document.createElement("div"); a.textContent = k; const b = document.createElement("div"); b.textContent = v; $("checkOut").append(a, b); }
+}
+
+function renderSettings(s) {
+  if (settingsLoaded) return; settingsLoaded = true;
+  for (const k of Object.keys(s)) if ($(k)) $(k).value = s[k];
+}
+
+function renderWatch(wl) {
+  const t = $("watchTable");
+  if (!wl) { $("watchMeta").textContent = ""; t.innerHTML = `<tr><td class="empty">まだ作っていません。上のボタンを押してください。</td></tr>`; return; }
+  $("watchMeta").textContent = `作成 ${wl.run_date}（${wl.data_date} の引けまでのデータ）・${wl.items.length} 銘柄`;
+  $("watchFunnel").innerHTML = Object.entries(wl.counts || {}).map(([k, v]) => `<span>${esc(k)} ${v}</span>`).join("");
+  let notes = "";
+  if (!wl.index_ok) notes += `<div class="note">⛔ ${esc(wl.note)}</div>`;
+  else if (wl.note) notes += `<div class="note">${esc(wl.note)}</div>`;
+  if (wl.unknown_earnings && wl.unknown_earnings.length) notes += `<div class="note">決算日が取れなかった銘柄（要確認・除外）: ${esc(wl.unknown_earnings.join(", "))}</div>`;
+  $("watchNote").innerHTML = notes;
+  if (!wl.items.length) { t.innerHTML = `<tr><td class="empty">今週の監視銘柄はありません（新規エントリーなし）。</td></tr>`; return; }
+  t.innerHTML = `<tr><th>順位</th><th>銘柄</th><th>終値</th><th>20日高値</th><th>高値まで</th><th>ATR(14)</th><th>出来高の伸び</th><th>次回決算</th></tr>` +
+    wl.items.map((x) => `<tr><td>${x.rank}</td><td><b>${esc(x.symbol)}</b></td><td>${fmt(x.close, 2)}</td><td>${fmt(x.high_20d, 2)}</td>
+      <td>${fmt((x.high_20d / x.close - 1) * 100, 1)}%</td><td>${fmt(x.atr_14, 2)}</td><td>${fmt(x.volume_ratio, 2)}倍</td><td>${esc(x.next_earnings || "—")}</td></tr>`).join("");
+}
+
+let lastReport = null;
+function renderReport(rep) {
+  if (!rep) { $("btResult").innerHTML = `<div class="card empty">まだバックテストをしていません。</div>`; return; }
+  if (lastReport === rep.dir) return; lastReport = rep.dir;
+  const fx = rep.fx || 150, keys = Object.keys(rep.stats), S = rep.stats, L = rep.labels || {};
+  const rows = [
+    ["総損益（円）", (s) => `<span class="${cls(s["総損益_usd"])}">${fmt(s["総損益_usd"] * fx, 0)}</span>`],
+    ["総損益（%）", (s) => fmt(s["総損益_pct"])], ["年率リターン（%）", (s) => fmt(s["年率リターン_pct"])],
+    ["最大ドローダウン（%）", (s) => fmt(s["最大ドローダウン_pct"])], ["取引回数", (s) => fmt(s["取引回数"], 0)],
+    ["勝率（%）", (s) => fmt(s["勝率_pct"])], ["損益レシオ", (s) => fmt(s["損益レシオ"], 2)],
+    ["平均保有日数", (s) => fmt(s["平均保有日数"])], ["現金比率（%）", (s) => fmt(s["現金比率_平均_pct"])],
+    ["ノーポジション日（%）", (s) => fmt(s["ノーポジション日数_pct"])]];
+  let h = `<div class="card"><h2>結果（${esc(rep.created || rep.dir)}）</h2>`;
+  h += `<div class="hint">データ: ${esc(rep.data?.source || "")}・${esc(rep.data?.symbols || "")} 銘柄・${esc(rep.data?.range || "")}</div>`;
+  for (const n of rep.notes || []) h += `<div class="note">${esc(n.replace(/\*\*/g, ""))}</div>`;
+  h += `<div class="tablewrap"><table><tr><th>指標</th>${keys.map((k) => `<th>${esc(L[k] || k)}</th>`).join("")}</tr>`;
+  for (const [name, fn] of rows) h += `<tr><td>${name}</td>${keys.map((k) => `<td>${S[k] ? fn(S[k]) : "—"}</td>`).join("")}</tr>`;
+  h += `</table></div>`;
+  for (const img of rep.images || []) h += `<img class="chart" src="/reports/${encodeURIComponent(rep.dir)}/${img}?t=${TOKEN}" alt="${img}">`;
+  h += `</div>`;
+  const on = S.full_on, off = S.full_off;
+  if (on && on["年別損益_usd"]) {
+    const years = [...new Set([...Object.keys(on["年別損益_usd"]), ...Object.keys(off?.["年別損益_usd"] || {})])].sort();
+    h += `<div class="card"><h2>年別損益（円）</h2><div class="tablewrap"><table><tr><th>年</th><th>指数フィルターあり</th><th>なし</th></tr>` +
+      years.map((y) => { const a = on["年別損益_usd"][y] || 0, b = (off?.["年別損益_usd"] || {})[y] || 0;
+        return `<tr><td>${y}</td><td class="${cls(a)}">${fmt(a * fx, 0)}</td><td class="${cls(b)}">${fmt(b * fx, 0)}</td></tr>`; }).join("") + `</table></div>`;
+    const reasons = Object.entries(on["手仕舞い理由"] || {}).map(([k, v]) => `${REASONS[k] || k} ${v}回`).join("・");
+    h += `<div class="hint" style="margin-top:8px">手仕舞いの内訳（全期間・フィルターあり）: ${esc(reasons)}</div>`;
+    h += `<div class="hint">詳しいレポート: <a href="/reports/${encodeURIComponent(rep.dir)}/report.md?t=${TOKEN}" target="_blank">report.md</a> ・ フォルダ reports/${esc(rep.dir)}/</div></div>`;
+  }
+  $("btResult").innerHTML = h;
+}
+
+function renderData(d) {
+  $("dataStatus").innerHTML = "";
+  const rows = [["銘柄リスト", d.universe ? `${fmt(d.universe, 0)} 銘柄` : "未取得"], ["日足", d.prices ? `${fmt(d.prices, 0)} 銘柄（最終日 ${d.last_date || "—"}）` : "未取得"],
+    ["決算日", d.earnings ? `${fmt(d.earnings, 0)} 銘柄` : "未取得"]];
+  for (const [k, v] of rows) { const a = document.createElement("div"); a.textContent = k; const b = document.createElement("div"); b.textContent = v; $("dataStatus").append(a, b); }
+}
+
+async function poll() {
+  let st;
+  try { st = await api("/api/status?since=" + logSeq); } catch (e) { $("jobPill").textContent = "画面のサーバが止まっています"; $("jobPill").className = "pill err"; return; }
+  last = st;
+  $("clock").textContent = "日本時間 " + st.now_jst;
+  renderSettings(st.settings); renderJob(st.job); renderWatch(st.watchlist); renderReport(st.report); renderData(st.data);
+  const lg = $("log");
+  for (const l of st.logs) { const d = document.createElement("div"); d.className = l.level; d.textContent = l.msg; lg.appendChild(d); logSeq = l.id; }
+  while (lg.childNodes.length > 1500) lg.removeChild(lg.firstChild);
+  if (st.logs.length) lg.scrollTop = lg.scrollHeight;
+}
+poll(); setInterval(poll, 1500);
+</script>
+</body>
+</html>

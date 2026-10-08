@@ -17,10 +17,10 @@ dev = ["pytest>=7.0"]
 swing = "swing.__main__:main"
 
 [tool.setuptools.packages.find]
-include = ["swing*", "scalper*"]
+include = ["swing*"]
 
 [tool.setuptools.package-data]
-"scalper.gui" = ["static/*.html"]
+"swing" = ["static/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

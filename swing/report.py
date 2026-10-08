@@ -111,7 +111,9 @@ def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path
     for k, r in runs.items():
         backtest.trades_frame(r).to_csv(out / f"trades_{k}.csv", index=False)
     pd.DataFrame(full_on.decisions).to_csv(out / "decisions_full.csv", index=False)
-    (out / "stats.json").write_text(json.dumps(st, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+    payload = {"created": datetime.now().isoformat(timespec="seconds"), "data": data_info, "notes": notes,
+               "fx": fx, "labels": {k: r.label for k, r in runs.items()}, "stats": st}
+    (out / "stats.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
     # ---- Markdown
     L = []

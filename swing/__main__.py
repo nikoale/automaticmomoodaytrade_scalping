@@ -87,7 +87,7 @@ def cmd_backtest(cfg, synthetic: bool) -> None:
     runs = report.run_suite(cfg, ind, earnings, shares)
     out = report.write(cfg, runs, ind, notes, info)
     log.info("完了: %s", out / "report.md")
-    print(out / "report.md")
+    return out
 
 
 def main(argv=None) -> None:
@@ -102,6 +102,9 @@ def main(argv=None) -> None:
     s.add_argument("--no-update", action="store_true", help="(free のみ) データを更新せずキャッシュで実行")
     s.add_argument("--source", choices=["moomoo", "free"], help="config の data.screener_source を上書き")
     sub.add_parser("quota", help="moomoo の過去 K 線の取得枠 (使用済み / 残り) を表示")
+    g = sub.add_parser("gui", help="ブラウザで操作する画面")
+    g.add_argument("--port", type=int, default=8765)
+    g.add_argument("--no-browser", action="store_true")
     b = sub.add_parser("backtest")
     b.add_argument("--synthetic", action="store_true")
     a = p.parse_args(argv)
@@ -120,7 +123,10 @@ def main(argv=None) -> None:
             used, remain = m.quota()
         print(f"過去 K 線の取得枠: 使用済み {used} / 残り {remain}")
     elif a.cmd == "backtest":
-        cmd_backtest(cfg, a.synthetic)
+        print(cmd_backtest(cfg, a.synthetic) / "report.md")
+    elif a.cmd == "gui":
+        from .gui import serve
+        serve(port=a.port, open_browser=not a.no_browser)
 
 
 if __name__ == "__main__":
