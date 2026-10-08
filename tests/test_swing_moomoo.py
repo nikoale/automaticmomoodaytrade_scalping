@@ -81,6 +81,11 @@ def build_fake(bench_kind="up"):
             return 0, (10, 90, [])
 
         def get_stock_filter(self, market, filter_list, begin=0, num=200, plate_code=None):
+            # 実機と同じ: 絞り込む条件 (is_no_filter=False) に下限・上限の両方がないとエラー
+            for f in filter_list:
+                if getattr(f, "is_no_filter", None) is False and hasattr(f, "filter_min") and \
+                        (getattr(f, "filter_min", None) is None or getattr(f, "filter_max", None) is None):
+                    return -1, "フィルターフィールドに範囲値が設定されていません"
             self.filter_calls.append((len(filter_list), begin, num))
             if len(filter_list) == 1:                                  # 騰落率の境目を求める呼び出し
                 return 0, (False, 1000, [_Item("US.TH", "TH", {("change_rate", 126): 35.0})])

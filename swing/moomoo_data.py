@@ -20,6 +20,12 @@ import pandas as pd
 log = logging.getLogger(__name__)
 
 
+# get_stock_filter は絞り込む条件に「下限と上限の両方」が必要 (片側だけだとエラー:
+# 「フィルターフィールドに範囲値が設定されていません」。2026-10 実機で確認)。片側を決めない条件にはこの値を使う
+OPEN_MAX = 1e15
+PCT_MIN = -100.0          # 騰落率 (%) の下限 (−100% より下はない)
+
+
 def to_code(sym: str) -> str:
     return sym if sym.startswith("US.") else f"US.{sym}"
 
@@ -55,27 +61,33 @@ class MoomooData:
         return int(used), int(remain)
 
     # ---------------------------------------------------------------- 条件選股
-    def _filter(self, filters: list, begin: int = 0, num: int = 200):
-        """get_stock_filter (呼び出し間隔を空けて頻度制限を避ける)。"""
+    def _filter(self, filters: list, begin: int = 0, num: int = 200, step: str = ""):
+        """get_stock_filter (呼び出し間隔を空けて頻度制限を避ける)。step はエラー時に出す段階の名前。"""
         wait = self.m["filter_interval_sec"] - (time.monotonic() - self._last_filter)
         if wait > 0:
             time.sleep(wait)
         ret, data = self.ctx.get_stock_filter(market=self.mm.Market.US, filter_list=filters, begin=begin, num=num)
         self._last_filter = time.monotonic()
         if ret != self.mm.RET_OK:
-            raise RuntimeError(f"get_stock_filter 失敗: {data}")
+            raise RuntimeError(f"get_stock_filter 失敗{f'（{step}）' if step else ''}: {data}")
         return data            # (last_page, all_count, list[FilterStockData])
 
     def _simple(self, field, lo=None, hi=None):
         f = self.mm.SimpleFilter()
-        f.stock_field, f.filter_min, f.filter_max, f.is_no_filter = field, lo, hi, False
+        f.stock_field, f.is_no_filter = field, False
+        f.filter_min = lo if lo is not None else -OPEN_MAX
+        f.filter_max = hi if hi is not None else OPEN_MAX
         return f
 
     def _acc(self, field, days, lo=None, hi=None, no_filter=False, sort=None):
         f = self.mm.AccumulateFilter()
         f.stock_field, f.days = field, days
-        f.filter_min, f.filter_max = lo, hi
-        f.is_no_filter = True if no_filter else False
+        if no_filter:
+            f.is_no_filter = True          # 絞り込まずに値だけ受け取る
+        else:
+            f.is_no_filter = False
+            f.filter_min = lo if lo is not None else -OPEN_MAX
+            f.filter_max = hi if hi is not None else OPEN_MAX
         if sort is not None:
             f.sort = sort
         return f
@@ -97,12 +109,13 @@ class MoomooData:
         降順に並べて上位 N% の位置の 1 銘柄だけを取る (2 回の呼び出しで済む)。
         """
         sc, mm = self.cfg["screener"], self.mm
-        flt = self._acc(mm.StockField.CHANGE_RATE, sc["momentum_days"], sort=mm.SortDir.DESCEND)
-        _, total, _ = self._filter([flt], begin=0, num=1)
+        flt = self._acc(mm.StockField.CHANGE_RATE, sc["momentum_days"], PCT_MIN, OPEN_MAX, sort=mm.SortDir.DESCEND)
+        step = "6ヶ月騰落率の上位の境目を求める"
+        _, total, _ = self._filter([flt], begin=0, num=1, step=step)
         if total <= 0:
             raise RuntimeError("騰落率の対象銘柄が 0 件です")
         pos = max(int(total * sc["momentum_top_pct"] / 100.0) - 1, 0)
-        _, _, items = self._filter([flt], begin=pos, num=1)
+        _, _, items = self._filter([flt], begin=pos, num=1, step=step)
         if not items:
             raise RuntimeError("上位 N% の境目の銘柄を取得できません")
         v = _value(items[0], ("change_rate", sc["momentum_days"]))
@@ -115,16 +128,17 @@ class MoomooData:
         sf = mm.StockField
         filters = [
             self._simple(sf.CUR_PRICE, sc["price_min"], sc["price_max"]),
-            self._simple(sf.MARKET_VAL, sc["market_cap_min_usd"], None),
-            self._acc(sf.VOLUME, sc["avg_volume_days"], sc["avg_volume_min"], None),
+            self._simple(sf.MARKET_VAL, sc["market_cap_min_usd"], OPEN_MAX),
+            self._acc(sf.VOLUME, sc["avg_volume_days"], sc["avg_volume_min"], OPEN_MAX),
             self._acc(sf.VOLUME, sc["volume_ratio_long"], no_filter=True),
-            self._acc(sf.CHANGE_RATE, sc["momentum_days"], threshold_pct, None, sort=mm.SortDir.DESCEND),
+            self._acc(sf.CHANGE_RATE, sc["momentum_days"], threshold_pct, OPEN_MAX, sort=mm.SortDir.DESCEND),
             self._ma_above(sf.PRICE, [], sf.MA, [sc["sma_fast"]]),
             self._ma_above(sf.MA, [sc["sma_fast"]], sf.MA, [sc["sma_slow"]]),
         ]
         out, begin = [], 0
         while True:
-            last, total, items = self._filter(filters, begin=begin, num=self.m["page_size"])
+            last, total, items = self._filter(filters, begin=begin, num=self.m["page_size"],
+                                              step="株価・時価総額・出来高・騰落率・移動平均で絞り込む")
             for it in items:
                 v20 = _value(it, ("volume", sc["avg_volume_days"]))
                 v100 = _value(it, ("volume", sc["volume_ratio_long"]))
