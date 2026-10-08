@@ -80,3 +80,13 @@ execution:
   limit_offset_ticks: 1 # 実発注は 最良気配 ± 1 ティックの指値 (即時約定狙い)
   order_timeout_sec: 5  # 5 秒で約定しなければ取消
   use_market_orders: false
+
+# 銘柄の自動選定 (起動時に候補約 40 銘柄から点数の高い順に選ぶ)
+auto_symbols:
+  enabled: false
+  count: 3
+  min_price: 300
+  max_price: 5000             # 100 株 × 5000 円 = 50 万円 (1 ポジション上限) まで
+  min_turnover: 5000000000    # 当日売買代金 50 億円以上
+  min_amplitude_pct: 1.5
+  max_spread_pct: 0.1

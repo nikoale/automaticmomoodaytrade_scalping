@@ -45,3 +45,11 @@ execution:
   tick_size: auto
   slippage_ticks: 2
   limit_offset_ticks: 2
+auto_symbols:
+  enabled: false
+  count: 2
+  min_price: 5
+  max_price: 1000
+  min_turnover: 100000000
+  min_amplitude_pct: 1.5
+  max_spread_pct: 0.1          # 時間外はスプレッドが広め

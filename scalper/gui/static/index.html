@@ -25,7 +25,7 @@ header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; back
 header h1 { font-size: 16px; margin: 0; font-weight: 700; }
 .pill { padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--chip); color: var(--muted); }
 .pill.running { background: rgba(15,157,107,.14); color: var(--up); }
-.pill.warming, .pill.connecting { background: rgba(201,138,0,.14); color: var(--warn); }
+.pill.warming, .pill.connecting, .pill.screening { background: rgba(201,138,0,.14); color: var(--warn); }
 .pill.error { background: rgba(214,64,74,.14); color: var(--down); }
 .spacer { flex: 1; }
 .layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; padding: 16px 20px; max-width: 1500px; margin: 0 auto; }
@@ -72,6 +72,7 @@ table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-nu
 th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
 th:first-child, td:first-child { text-align: left; }
 th { color: var(--muted); font-weight: 600; }
+#screenTable th:nth-child(2), #screenTable td:nth-child(2) { text-align: left; }
 .tablewrap { overflow-x: auto; max-height: 320px; overflow-y: auto; }
 .log { font: 12px/1.6 ui-monospace, Menlo, monospace; white-space: pre-wrap; max-height: 520px; overflow-y: auto;
   background: var(--bg); border-radius: 8px; padding: 10px; }
@@ -110,6 +111,14 @@ th { color: var(--muted); font-weight: 600; }
         <input id="symbols" placeholder="US.AAPL, US.NVDA" style="flex:3">
         <button id="btnSearch" style="flex:1">検索</button>
       </div>
+      <div class="row" style="align-items:center; margin-top:8px">
+        <label style="margin:0; flex:3; color:var(--text); font-size:13px; display:flex; gap:6px; align-items:center">
+          <input type="checkbox" id="auto" style="width:auto"> 銘柄を自動で選ぶ</label>
+        <input id="auto_count" type="number" min="1" max="20" style="flex:1" title="選ぶ銘柄数">
+        <span class="hint" style="flex:0 0 auto">銘柄</span>
+      </div>
+      <button id="btnScreen" style="width:100%; margin-top:6px">候補ランキングを見る</button>
+      <div id="autoHint" class="hint"></div>
 
       <label>戦略</label>
       <select id="strategy"></select>
@@ -217,6 +226,16 @@ th { color: var(--muted); font-weight: 600; }
   <button class="big" onclick="closeModal('checkModal')">閉じる</button>
 </div></div>
 
+<!-- 自動選定ランキング -->
+<div id="screenModal" class="modal"><div class="card" style="width:min(900px,100%)">
+  <h2>自動選定の候補ランキング</h2>
+  <div class="hint">点数 = 当日値幅% × log10(売買代金) × 出来高比率（上限3）。★ が「開始」したときに選ばれる銘柄です（開始時点のデータで選び直します）。</div>
+  <div class="tablewrap" style="max-height:60vh; margin-top:8px"><table id="screenTable"><thead><tr>
+    <th>銘柄</th><th>名前</th><th>現在値</th><th>値幅%</th><th>売買代金</th><th>出来高比</th><th>スプレッド%</th><th>点数</th><th>判定</th>
+  </tr></thead><tbody><tr><td colspan="9" class="empty">取得中...</td></tr></tbody></table></div>
+  <button class="big" onclick="closeModal('screenModal')">閉じる</button>
+</div></div>
+
 <!-- 銘柄検索 -->
 <div id="searchModal" class="modal"><div class="card">
   <h2>銘柄検索</h2>
@@ -232,7 +251,7 @@ const $ = (id) => document.getElementById(id);
 let META = null, logSeq = 0, lastState = null;
 const REASONS = { target: "利確", stop: "損切り", time_stop: "時間切れ", session_end: "引け前決済", signal: "シグナル",
   risk_halt: "損失上限", manual: "手動決済", shutdown: "停止時決済", end_of_data: "データ終了" };
-const PHASES = { idle: "停止中", connecting: "接続中…", warming: "準備中…", running: "稼働中", stopped: "停止中", error: "エラー" };
+const PHASES = { idle: "停止中", connecting: "接続中…", screening: "銘柄選定中…", warming: "準備中…", running: "稼働中", stopped: "停止中", error: "エラー" };
 
 async function api(path, body) {
   const opt = { headers: { "X-Token": TOKEN, "Content-Type": "application/json" } };
@@ -253,19 +272,26 @@ function settings() {
     account_size: $("account_size").value, risk_pct: $("risk_pct").value,
     max_daily_loss: $("max_daily_loss").value, max_position_value: $("max_position_value").value,
     host: $("host").value, port: $("port").value,
+    auto: $("auto").checked, auto_count: $("auto_count").value,
   };
 }
 function applyPreset(key, keepSymbols) {
   const p = META.presets[key];
   if (!keepSymbols) {
     $("symbols").value = p.symbols; $("strategy").value = p.strategy;
-    for (const k of ["account_size", "risk_pct", "max_daily_loss", "max_position_value"]) $(k).value = p[k];
+    for (const k of ["account_size", "risk_pct", "max_daily_loss", "max_position_value", "auto_count"]) $(k).value = p[k];
   }
   document.querySelectorAll(".cur").forEach((e) => e.textContent = "(" + p.currency + ")");
   const sim = document.querySelector("input[name=mode][value=simulate]");
   sim.disabled = !p.simulate_ok;
   if (!p.simulate_ok) document.querySelector("input[name=mode][value=paper]").checked = true;
   updateHints();
+}
+function updateAuto() {
+  const on = $("auto").checked;
+  $("symbols").disabled = on || (lastState && lastState.running);
+  $("btnSearch").disabled = on;
+  $("autoHint").textContent = on ? `開始時に、よく動いて売買の多い銘柄を ${$("auto_count").value || "?"} 個選びます（上の銘柄欄は使いません）` : "";
 }
 function updateHints() {
   $("strategyInfo").textContent = META.strategies[$("strategy").value] || "";
@@ -288,12 +314,13 @@ async function init() {
   $("preset").value = s.preset || "us";
   applyPreset($("preset").value, false);
   if (s.preset) {
-    for (const k of ["symbols", "strategy", "account_size", "risk_pct", "max_daily_loss", "max_position_value", "host", "port"])
+    for (const k of ["symbols", "strategy", "account_size", "risk_pct", "max_daily_loss", "max_position_value", "host", "port", "auto_count"])
       if (s[k] !== undefined && s[k] !== "") $(k).value = s[k];
+    $("auto").checked = !!s.auto;
     const m = document.querySelector(`input[name=mode][value=${s.mode}]`);
     if (m && !m.disabled) m.checked = true;
   }
-  updateHints();
+  updateHints(); updateAuto();
   poll();
   setInterval(poll, 1000);
 }
@@ -310,6 +337,21 @@ $("btnCheck").onclick = async () => {
   $("checkOut").textContent = "確認中..."; openModal("checkModal");
   const r = await api("/api/check", { settings: settings() });
   $("checkOut").textContent = (r.lines || [r.error]).join("\n");
+};
+$("auto").onchange = updateAuto; $("auto_count").oninput = updateAuto;
+$("btnScreen").onclick = async () => {
+  const tb = $("screenTable").querySelector("tbody");
+  tb.innerHTML = `<tr><td colspan="9" class="empty">取得中...（OpenD が必要）</td></tr>`; openModal("screenModal");
+  const r = await api("/api/screen", { settings: settings() });
+  if (!r.ok) { tb.innerHTML = ""; const tr = tb.insertRow(); const td = tr.insertCell(); td.colSpan = 9; td.textContent = r.error; return; }
+  tb.innerHTML = "";
+  for (const x of r.rows) {
+    const tr = tb.insertRow();
+    const cells = [(x.chosen ? "★ " : "") + x.code, x.name.slice(0, 18), fmt(x.last, 4), fmt(x.amplitude, 2), fmt(x.turnover, 0),
+      x.volume_ratio === null ? "—" : fmt(x.volume_ratio, 2), x.spread_pct === null ? "—" : fmt(x.spread_pct, 3), fmt(x.score, 1),
+      x.excluded ? "× " + x.excluded : (x.chosen ? "選定" : "候補")];
+    cells.forEach((c, i) => { const td = tr.insertCell(); td.textContent = c; if (i === 8 && x.excluded) td.className = "hint"; if (x.chosen) td.style.fontWeight = 700; });
+  }
 };
 $("btnSearch").onclick = () => { openModal("searchModal"); $("searchQ").focus(); };
 $("btnDoSearch").onclick = async () => {
@@ -453,6 +495,9 @@ async function poll() {
     .forEach((e) => { if (e.name !== "mode" || !st.running) e.disabled = st.running; });
   if (!st.running) applyPresetModeLock();
   if (st.phase === "error" && st.error) banner("停止しました: " + st.error);
+  else if (st.running && st.auto && st.chosen && st.chosen.length) banner("自動選定した銘柄: " + st.chosen.join(", "), "info");
+  else if (!st.running && $("banner").classList.contains("info")) banner("");
+  updateAuto();
 
   for (const l of st.logs || []) {
     const d = document.createElement("div"); d.className = l.level; d.textContent = l.msg; $("log").appendChild(d);

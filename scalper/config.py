@@ -88,6 +88,19 @@ class ExecutionConfig:
 
 
 @dataclass
+class AutoSymbolConfig:
+    """銘柄の自動選定。enabled なら起動時に候補から上位 count 銘柄を選び symbols を置き換える。"""
+    enabled: bool = False
+    count: int = 3
+    universe: list[str] = field(default_factory=list)  # 空なら市場ごとの組み込み候補リスト
+    min_price: float = 0.0
+    max_price: float = 0.0          # 0 = 上限なし
+    min_turnover: float = 0.0       # 当日の売買代金の下限 (その市場の通貨)
+    min_amplitude_pct: float = 1.0  # 当日値幅 % の下限
+    max_spread_pct: float = 0.1     # スプレッド % の上限 (気配が取れない場合は判定しない)
+
+
+@dataclass
 class Config:
     mode: str = "paper"
     symbols: list[str] = field(default_factory=lambda: ["JP.7203"])
@@ -100,6 +113,7 @@ class Config:
     exits: ExitConfig = field(default_factory=ExitConfig)
     risk: RiskConfig = field(default_factory=RiskConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    auto_symbols: AutoSymbolConfig = field(default_factory=AutoSymbolConfig)
 
     @property
     def market(self) -> str:
@@ -127,7 +141,9 @@ class Config:
             raise ValueError("時間外取引 (us_session) は米国株のみ対応です")
         if self.bar_minutes not in (1, 3, 5, 15):
             raise ValueError("bar_minutes は 1/3/5/15 のいずれか")
-        for s in self.symbols:
+        if self.auto_symbols.enabled and not 1 <= self.auto_symbols.count <= 20:
+            raise ValueError("auto_symbols.count は 1〜20")
+        for s in self.symbols + [u.upper() for u in self.auto_symbols.universe]:
             if not s.upper().startswith(self.market + "."):
                 raise ValueError(f"銘柄 {s} は trd_market={self.market} と一致しません (例: {self.market}.7203)")
 

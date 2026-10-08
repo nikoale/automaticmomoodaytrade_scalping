@@ -80,3 +80,15 @@ def test_start_state_flatten_stop(gui):
     assert call("/api/stop", {})[1]["ok"]
     _, st = call("/api/state?since=0")
     assert not st["running"] and st["phase"] == "stopped"
+
+
+def test_screen_endpoint_marks_chosen(gui):
+    _, call = gui
+    _, r = call("/api/screen", {"settings": {"preset": "us", "auto": True, "auto_count": 2}})
+    assert r["ok"] and sum(1 for x in r["rows"] if x["chosen"]) == 2
+
+
+def test_build_config_auto():
+    from scalper.gui.server import build_config
+    cfg = build_config({"preset": "us", "auto": True, "auto_count": "4"})
+    assert cfg.auto_symbols.enabled and cfg.auto_symbols.count == 4

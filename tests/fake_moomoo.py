@@ -96,8 +96,14 @@ def build(fill_mode="full"):
 
         def get_market_snapshot(self, codes):
             self.calls.append(("snapshot",))
-            return 0, pd.DataFrame([{"code": c, "name": c, "lot_size": 1, "last_price": 100.0, "bid_price": 99.99,
-                                     "ask_price": 100.01} for c in codes])
+            rows = []
+            for i, c in enumerate(codes):
+                amp = 0.5 + (i * 7 % 10) * 0.4          # 銘柄ごとに値幅を変える
+                rows.append({"code": c, "name": c, "lot_size": 1, "last_price": 100.0, "bid_price": 99.99,
+                             "ask_price": 100.01, "high_price": 100 + amp / 2, "low_price": 100 - amp / 2,
+                             "prev_close_price": 100.0, "turnover": 2e8 + i * 1e7, "volume_ratio": 1.0,
+                             "amplitude": amp, "suspension": False})
+            return 0, pd.DataFrame(rows)
 
         def subscribe(self, codes, subs, **kw):
             self.calls.append(("subscribe", kw.get("session")))

@@ -77,7 +77,7 @@ class LiveRunner:
         self.quote_ctx = None
         self.broker: Broker | None = None
         self.bars: dict[str, deque] = {}          # 画面表示用の直近の確定足
-        self.phase = "idle"                       # idle / connecting / warming / running / stopped / error
+        self.phase = "idle"             # idle / connecting / screening / warming / running / stopped / error
         self.error: str | None = None
         self.started_at: datetime | None = None
 
@@ -324,7 +324,8 @@ class LiveRunner:
             })
         return {
             "phase": self.phase, "error": self.error, "mode": self.cfg.mode, "market": self.cfg.market,
-            "strategy": self.cfg.strategy.name, "started_at": str(self.started_at) if self.started_at else None,
+            "strategy": self.cfg.strategy.name, "auto": self.cfg.auto_symbols.enabled,
+            "chosen": list(self.cfg.symbols) if self.engines else [], "started_at": str(self.started_at) if self.started_at else None,
             "now": str(self.now()),
             "daily_pnl": risk.daily_pnl if risk else 0.0, "trades_today": risk.trades_today if risk else 0,
             "halted": risk.halted_reason if risk else None, "symbols": symbols,
@@ -340,6 +341,11 @@ class LiveRunner:
         self.phase = "connecting"
         try:
             self._connect()
+            if cfg.auto_symbols.enabled:
+                from .screener import select
+                self.phase = "screening"
+                cfg.symbols = select(cfg, self.quote_ctx, self.mm)
+                log.info("自動選定した銘柄: %s", cfg.symbols)
             self._build_engines()
             self._subscribe()
             self.phase = "warming"

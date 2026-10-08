@@ -83,6 +83,10 @@ def build_config(s: dict) -> Config:
             setattr(r, attr, conv(s[key]))
     if s.get("risk_pct") not in (None, ""):
         r.risk_per_trade = float(s["risk_pct"]) / 100.0
+    if "auto" in s:
+        cfg.auto_symbols.enabled = bool(s["auto"])
+    if s.get("auto_count") not in (None, ""):
+        cfg.auto_symbols.count = int(s["auto_count"])
     if s.get("host"):
         cfg.moomoo.host = str(s["host"])
     if s.get("port"):
@@ -105,7 +109,7 @@ def preset_defaults() -> dict:
             "account_size": cfg.risk.account_size, "risk_pct": round(cfg.risk.risk_per_trade * 100, 3),
             "max_daily_loss": cfg.risk.max_daily_loss, "max_position_value": cfg.risk.max_position_value,
             "currency": "円" if cfg.market == "JP" else "USD", "market": cfg.market,
-            "simulate_ok": cfg.market == "US",
+            "simulate_ok": cfg.market == "US", "auto_count": cfg.auto_symbols.count,
         }
     return out
 
@@ -185,6 +189,16 @@ class App:
         cfg = build_config(s)
         rows, total = search_symbols(cfg, None, query, 100)
         return {"ok": True, "rows": rows, "total": total}
+
+    def screen(self, s: dict) -> dict:
+        from ..tools import screen_preview
+        cfg = build_config(s)
+        rows = screen_preview(cfg)
+        for r in rows[:60]:
+            r["chosen"] = False
+        for r in [r for r in rows if r["excluded"] is None][: cfg.auto_symbols.count]:
+            r["chosen"] = True
+        return {"ok": True, "rows": rows[:60], "total": len(rows), "count": cfg.auto_symbols.count}
 
     def backtest(self, s: dict, source: str, days: int) -> dict:
         cfg = build_config(s)
@@ -275,6 +289,8 @@ def make_handler(app: App):
                     return self._json(app.check(s))
                 if self.path == "/api/symbols":
                     return self._json(app.symbols(s, body.get("query", "")))
+                if self.path == "/api/screen":
+                    return self._json(app.screen(s))
                 if self.path == "/api/backtest":
                     return self._json(app.backtest(s, body.get("source", "sample"), int(body.get("days", 20))))
                 if self.path == "/api/settings":

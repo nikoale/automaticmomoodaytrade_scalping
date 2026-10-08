@@ -31,3 +31,14 @@ risk:
 execution:
   tick_size: auto
   slippage_ticks: 1
+# 銘柄の自動選定: enabled: true で、起動時に候補 (流動性の高い約 60 銘柄) から
+# 「当日値幅 × 売買代金 × 出来高比率」の点数が高い順に count 銘柄を選んで symbols を置き換える
+auto_symbols:
+  enabled: false
+  count: 2
+  min_price: 5
+  max_price: 1000              # 1 ポジション上限 (5000 USD) で 5 株以上買える価格まで
+  min_turnover: 100000000      # 当日売買代金 1 億ドル以上
+  min_amplitude_pct: 1.5       # 当日値幅 1.5% 以上
+  max_spread_pct: 0.05
+  # universe: [US.NVDA, US.TSLA, US.AMD]   # 候補を自分で指定する場合

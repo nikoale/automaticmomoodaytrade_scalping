@@ -119,3 +119,14 @@ def fetch_history(cfg: Config, code: str, start: str, end: str, bar_minutes: int
                 return bars
     finally:
         ctx.close()
+
+
+def screen_preview(cfg: Config) -> list[dict]:
+    """自動選定の候補ランキング (GUI の「候補を見る」用)。"""
+    from .screener import screen
+    mm = _mm()
+    ctx = mm.OpenQuoteContext(host=cfg.moomoo.host, port=cfg.moomoo.port)
+    try:
+        return screen(cfg, ctx, mm)
+    finally:
+        ctx.close()

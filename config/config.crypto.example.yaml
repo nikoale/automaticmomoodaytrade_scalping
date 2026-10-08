@@ -37,3 +37,9 @@ execution:
   tick_size: auto
   slippage_ticks: 1000          # BTC 6 万ドルなら 10 ドル (約 0.017%)
   commission_rate: 0.0          # 実際の手数料率 (例: 0.001 = 0.1%) を入れると現実に近くなる
+auto_symbols:                  # 候補は moomoo の暗号資産一覧 (USD 建て) から自動取得
+  enabled: false
+  count: 2
+  min_turnover: 1000000
+  min_amplitude_pct: 1.0
+  max_spread_pct: 0.1
