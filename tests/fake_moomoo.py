@@ -114,8 +114,23 @@ def build(fill_mode="full"):
             self.calls.append(("history", kw.get("session")))
             return 0, _klines(300, "2026-10-07 20:00:00"), None
 
+        def get_global_state(self):
+            return 0, {"qot_logined": True, "trd_logined": True, "market_us": "OVERNIGHT"}
+
+        def get_user_info(self, *a, **kw):
+            return 0, {"us_qot_right": "LV3", "jp_stock_qot_right": "N/A", "cc_qot_right": "LV1"}
+
+        def get_order_book(self, code, num=10):
+            return 0, {"code": code, "Bid": [(99.99, 100, 1, {})], "Ask": [(100.01, 120, 1, {})]}
+
+        def get_stock_basicinfo(self, market, stype):
+            return 0, pd.DataFrame([{"code": "CC.BTCUSD", "name": "Bitcoin", "lot_size": 0.0001},
+                                    {"code": "CC.ETHUSD", "name": "Ethereum", "lot_size": 0.001}])
+
         def close(self):
             pass
 
+    m.Market = _E(US="US", JP="JP", CC="CC")
+    m.SecurityType = _E(STOCK="STOCK", CRYPTO="CRYPTO")
     m.OpenQuoteContext = QuoteCtx
     return m

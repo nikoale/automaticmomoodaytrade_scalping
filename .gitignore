@@ -7,4 +7,5 @@ logs/
 data/*.csv
 !data/.gitkeep
 config/config.yaml
+config/gui_settings.json
 .env

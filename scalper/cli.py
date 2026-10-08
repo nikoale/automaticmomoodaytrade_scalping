@@ -51,110 +51,35 @@ def cmd_backtest(a) -> None:
 
 def cmd_fetch(a) -> None:
     """moomoo から過去の分足を取得して CSV に保存 (OpenD 起動が必要)。"""
-    import moomoo as mm
-
     from .data import save_csv
-    from .live import _KTYPE, _row_to_bar
+    from .tools import fetch_history
     cfg = load_config(a.config)
     _setup_logging(a.log_level or "INFO")
-    ctx = mm.OpenQuoteContext(host=cfg.moomoo.host, port=cfg.moomoo.port)
-    try:
-        ktype = getattr(mm.KLType, _KTYPE[a.bar_minutes])
-        bars, page_key = [], None
-        while True:
-            ret, df, page_key = ctx.request_history_kline(a.symbol, start=a.start, end=a.end, ktype=ktype,
-                                                          max_count=1000, page_req_key=page_key)
-            if ret != mm.RET_OK:
-                raise SystemExit(f"request_history_kline 失敗: {df}")
-            bars.extend(_row_to_bar(r) for _, r in df.iterrows())
-            if page_key is None:
-                break
-        save_csv(bars, a.out)
-        print(f"wrote {len(bars)} bars -> {a.out}")
-    finally:
-        ctx.close()
+    bars = fetch_history(cfg, a.symbol, a.start, a.end, a.bar_minutes)
+    save_csv(bars, a.out)
+    print(f"wrote {len(bars)} bars -> {a.out}")
 
 
 def cmd_check(a) -> None:
-    """接続・相場権限・現在値・板・直近の足を表示する。市場が閉まっていても実行できる。"""
-    import moomoo as mm
-
-    from .live import _KTYPE
-    cfg = load_config(a.config)
-    print(f"OpenD {cfg.moomoo.host}:{cfg.moomoo.port} に接続します...")
-    ctx = mm.OpenQuoteContext(host=cfg.moomoo.host, port=cfg.moomoo.port)
-    try:
-        ret, st = ctx.get_global_state()
-        if ret != mm.RET_OK:
-            raise SystemExit(f"get_global_state 失敗: {st}")
-        print(f"\n[ログイン] 相場サーバ={'OK' if str(st.get('qot_logined')) in ('1', 'True') else 'NG'}"
-              f"  取引サーバ={'OK' if str(st.get('trd_logined')) in ('1', 'True') else 'NG'}")
-        print(f"[市場状態] US={st.get('market_us')}  HK={st.get('market_hk')}")
-
-        ret, info = ctx.get_user_info()
-        if ret == mm.RET_OK and isinstance(info, dict):
-            rights = {k: v for k, v in info.items() if k in ("us_qot_right", "jp_stock_qot_right", "cc_qot_right")}
-            print(f"[相場権限] {rights}")
-
-        ret, snap = ctx.get_market_snapshot(cfg.symbols)
-        if ret != mm.RET_OK:
-            print(f"\n[スナップショット] 取得失敗: {snap}  (権限レベルによっては取れません。足が取れれば paper は動きます)")
-            snap = None
-        else:
-            print("\n[スナップショット]")
-        for _, r in (snap.iterrows() if snap is not None else []):
-            print(f"  {r['code']:10} {str(r.get('name', ''))[:20]:20} 現在値={r['last_price']}  "
-                  f"買気配={r.get('bid_price')}  売気配={r.get('ask_price')}  単位={r['lot_size']}  "
-                  f"更新={r.get('update_time')}")
-
-        session = cfg.session.us_session.upper()
-        kw = {} if session == "RTH" else {"session": getattr(mm.Session, session)}
-        ktype = _KTYPE[cfg.bar_minutes]
-        ret, err = ctx.subscribe(cfg.symbols, [getattr(mm.SubType, ktype)], **kw)
-        if ret != mm.RET_OK:
-            raise SystemExit(f"\n足の購読に失敗: {err}\n→ この市場の相場権限がないか、銘柄コードが違います "
-                             f"(python -m scalper symbols -c ... で確認)")
-        ret, err = ctx.subscribe(cfg.symbols, [mm.SubType.ORDER_BOOK])
-        has_book = ret == mm.RET_OK
-        if not has_book:
-            print(f"\n[板] 購読できません ({err})。paper は現在値で約定計算します")
-        for code in cfg.symbols:
-            ret, df = ctx.get_cur_kline(code, 5, getattr(mm.KLType, ktype), mm.AuType.QFQ)
-            print(f"\n[{code} 直近の{cfg.bar_minutes}分足]")
-            if ret == mm.RET_OK:
-                for _, r in df.iterrows():
-                    print(f"  {r['time_key']}  O={r['open']} H={r['high']} L={r['low']} C={r['close']} V={r['volume']}")
-            else:
-                print(f"  取得失敗: {df}")
-            ret, ob = ctx.get_order_book(code, num=3) if has_book else (mm.RET_ERROR, None)
-            if ret == mm.RET_OK:
-                bids = [(p, v) for p, v, *_ in ob.get("Bid", [])]
-                asks = [(p, v) for p, v, *_ in ob.get("Ask", [])]
-                print(f"  板 売: {asks}\n     買: {bids}")
-        print("\n✅ OpenD との接続と相場取得は正常です。")
-    finally:
-        ctx.close()
+    from .tools import run_check
+    ok = run_check(load_config(a.config), print)
+    if not ok:
+        raise SystemExit(1)
 
 
 def cmd_symbols(a) -> None:
-    """moomoo の銘柄コード一覧 (暗号資産のコード確認用)。"""
-    import moomoo as mm
+    from .tools import search_symbols
     cfg = load_config(a.config)
-    market = (a.market or cfg.market).upper()
-    stype = mm.SecurityType.CRYPTO if market == "CC" else mm.SecurityType.STOCK
-    ctx = mm.OpenQuoteContext(host=cfg.moomoo.host, port=cfg.moomoo.port)
-    try:
-        ret, df = ctx.get_stock_basicinfo(getattr(mm.Market, market), stype)
-        if ret != mm.RET_OK:
-            raise SystemExit(f"get_stock_basicinfo 失敗: {df}")
-        if a.grep:
-            q = a.grep.upper()
-            df = df[df["code"].str.upper().str.contains(q) | df["name"].astype(str).str.upper().str.contains(q)]
-        for _, r in df.head(a.limit).iterrows():
-            print(f"{r['code']:20} {r['name']}  (lot={r['lot_size']})")
-        print(f"-- {len(df)} 件 (表示 {min(len(df), a.limit)} 件)")
-    finally:
-        ctx.close()
+    rows, total = search_symbols(cfg, a.market, a.grep, a.limit)
+    for r in rows:
+        print(f"{r['code']:20} {r['name']}  (lot={r['lot_size']})")
+    print(f"-- {total} 件 (表示 {len(rows)} 件)")
+
+
+def cmd_gui(a) -> None:
+    from .gui.server import serve
+    _setup_logging(a.log_level or "INFO", str(Path(__file__).resolve().parents[1] / "logs"), "gui")
+    serve(port=a.port, open_browser=not a.no_browser)
 
 
 def cmd_run(a) -> None:
@@ -208,6 +133,11 @@ def main(argv=None) -> None:
     y.add_argument("--grep", help="コード・名前の部分一致")
     y.add_argument("--limit", type=int, default=50)
     y.set_defaults(func=cmd_symbols)
+
+    g = sub.add_parser("gui", help="ブラウザで操作する画面を起動")
+    g.add_argument("--port", type=int, default=8765)
+    g.add_argument("--no-browser", action="store_true")
+    g.set_defaults(func=cmd_gui)
 
     r = sub.add_parser("run", help="リアルタイム売買 (paper / simulate / live)")
     r.add_argument("-c", "--config", required=True)

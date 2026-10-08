@@ -106,10 +106,10 @@ class MoomooBroker(Broker):
                                          order_type=order_type, remark=f"scalper:{reason}"[:60],
                                          **self._order_kw)
         if ret != mm.RET_OK:
-            log.error("place_order failed (%s %s %d @ %s): %s", code, side.value, qty, price, data)
+            log.error("place_order failed (%s %s %g @ %s): %s", code, side.value, qty, price, data)
             return None
         order_id = str(data["order_id"].iloc[0])
-        log.info("order %s placed: %s %s %d @ %s (%s)", order_id, code, side.value, qty, price, reason)
+        log.info("order %s placed: %s %s %g @ %s (%s)", order_id, code, side.value, qty, price, reason)
 
         dealt_qty, avg_price, status = self._wait(order_id, ex.order_timeout_sec)
         if status not in _FINAL_STATUSES:

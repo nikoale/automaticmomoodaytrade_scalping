@@ -1,0 +1,121 @@
+"""接続チェックと銘柄検索 (CLI と GUI で共通)。"""
+from __future__ import annotations
+
+from typing import Callable
+
+from .config import Config
+from .live import _KTYPE, _row_to_bar
+from .models import Bar
+
+
+def _mm():
+    try:
+        import moomoo as mm
+    except ImportError as e:
+        raise RuntimeError("moomoo-api がインストールされていません (pip install moomoo-api)") from e
+    return mm
+
+
+def run_check(cfg: Config, out: Callable[[str], None]) -> bool:
+    """接続・相場権限・現在値・板・直近の足を out に書き出す。市場時間外でも実行できる。"""
+    mm = _mm()
+    out(f"OpenD {cfg.moomoo.host}:{cfg.moomoo.port} に接続します...")
+    ctx = mm.OpenQuoteContext(host=cfg.moomoo.host, port=cfg.moomoo.port)
+    try:
+        ret, st = ctx.get_global_state()
+        if ret != mm.RET_OK:
+            out(f"❌ OpenD に接続できません: {st}\n→ OpenD が起動してログイン済みか確認してください")
+            return False
+        qot = str(st.get("qot_logined")) in ("1", "True")
+        trd = str(st.get("trd_logined")) in ("1", "True")
+        out(f"[ログイン] 相場サーバ={'OK' if qot else 'NG'}  取引サーバ={'OK' if trd else 'NG'}")
+        out(f"[市場状態] US={st.get('market_us')}")
+
+        ret, info = ctx.get_user_info()
+        if ret == mm.RET_OK and isinstance(info, dict):
+            names = {"us_qot_right": "米国株", "jp_stock_qot_right": "日本株", "cc_qot_right": "暗号資産"}
+            out("[相場権限] " + "  ".join(f"{v}={info.get(k)}" for k, v in names.items()))
+
+        ret, snap = ctx.get_market_snapshot(cfg.symbols)
+        if ret != mm.RET_OK:
+            out(f"[スナップショット] 取得できません: {snap}")
+        else:
+            out("[スナップショット]")
+            for _, r in snap.iterrows():
+                out(f"  {r['code']}  {str(r.get('name', ''))[:24]}  現在値={r['last_price']}  "
+                    f"買気配={r.get('bid_price')}  売気配={r.get('ask_price')}  単位={r['lot_size']}  "
+                    f"更新={r.get('update_time')}")
+
+        session = cfg.session.us_session.upper()
+        kw = {} if session == "RTH" else {"session": getattr(mm.Session, session)}
+        ktype = _KTYPE[cfg.bar_minutes]
+        ret, err = ctx.subscribe(cfg.symbols, [getattr(mm.SubType, ktype)], **kw)
+        if ret != mm.RET_OK:
+            out(f"❌ 足の購読に失敗: {err}\n→ この市場の相場権限がないか、銘柄コードが違います (銘柄検索で確認)")
+            return False
+        ret, err = ctx.subscribe(cfg.symbols, [mm.SubType.ORDER_BOOK])
+        has_book = ret == mm.RET_OK
+        if not has_book:
+            out(f"[板] 購読できません ({err})。paper は現在値で約定計算します")
+        for code in cfg.symbols:
+            ret, df = ctx.get_cur_kline(code, 5, getattr(mm.KLType, ktype), mm.AuType.QFQ)
+            out(f"[{code} 直近の{cfg.bar_minutes}分足]")
+            if ret == mm.RET_OK:
+                for _, r in df.iterrows():
+                    out(f"  {r['time_key']}  始={r['open']} 高={r['high']} 安={r['low']} 終={r['close']} 出来高={r['volume']}")
+            else:
+                out(f"  取得失敗: {df}")
+            if has_book:
+                ret, ob = ctx.get_order_book(code, num=3)
+                if ret == mm.RET_OK:
+                    asks = [(p, v) for p, v, *_ in ob.get("Ask", [])]
+                    bids = [(p, v) for p, v, *_ in ob.get("Bid", [])]
+                    out(f"  板 売: {asks}\n     買: {bids}")
+        out("✅ OpenD との接続と相場取得は正常です。")
+        return True
+    finally:
+        ctx.close()
+
+
+def search_symbols(cfg: Config, market: str | None = None, query: str | None = None,
+                   limit: int = 50) -> tuple[list[dict], int]:
+    """moomoo の銘柄一覧から検索する (暗号資産のコード確認用)。"""
+    mm = _mm()
+    market = (market or cfg.market).upper()
+    stype = mm.SecurityType.CRYPTO if market == "CC" else mm.SecurityType.STOCK
+    ctx = mm.OpenQuoteContext(host=cfg.moomoo.host, port=cfg.moomoo.port)
+    try:
+        ret, df = ctx.get_stock_basicinfo(getattr(mm.Market, market), stype)
+        if ret != mm.RET_OK:
+            raise RuntimeError(f"get_stock_basicinfo 失敗: {df}")
+        if query:
+            q = query.upper()
+            df = df[df["code"].str.upper().str.contains(q, regex=False)
+                    | df["name"].astype(str).str.upper().str.contains(q, regex=False)]
+        rows = [{"code": r["code"], "name": str(r["name"]), "lot_size": r["lot_size"]}
+                for _, r in df.head(limit).iterrows()]
+        return rows, len(df)
+    finally:
+        ctx.close()
+
+
+def fetch_history(cfg: Config, code: str, start: str, end: str, bar_minutes: int = 1) -> list[Bar]:
+    """moomoo から過去の足を取得する (start/end は YYYY-MM-DD)。"""
+    mm = _mm()
+    ctx = mm.OpenQuoteContext(host=cfg.moomoo.host, port=cfg.moomoo.port)
+    try:
+        ktype = getattr(mm.KLType, _KTYPE[bar_minutes])
+        session = cfg.session.us_session.upper()
+        kw = {} if session == "RTH" else {"session": getattr(mm.Session, session)}
+        bars: list[Bar] = []
+        page = None
+        while True:
+            ret, df, page = ctx.request_history_kline(code, start=start, end=end, ktype=ktype, max_count=1000,
+                                                      page_req_key=page, **kw)
+            if ret != mm.RET_OK:
+                raise RuntimeError(f"request_history_kline 失敗: {df}")
+            bars.extend(_row_to_bar(r) for _, r in df.iterrows())
+            if page is None:
+                return bars
+    finally:
+        ctx.close()

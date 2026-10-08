@@ -10,7 +10,9 @@ import csv
 import logging
 import queue
 import signal
+import threading
 import time as _time
+from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -41,7 +43,7 @@ class PaperBroker(SimBroker):
         book = ask if side == Side.BUY else bid
         fill = super().execute(code, side, qty, book or ref_price, t, reason, exact=False)
         if fill:
-            log.info("[PAPER] %s %s %d @ %.4f (%s)", code, side.value, qty, fill.price, reason)
+            log.info("[PAPER] %s %s %g @ %.4f (%s)", code, side.value, qty, fill.price, reason)
         return fill
 
 
@@ -74,6 +76,10 @@ class LiveRunner:
         self.engines: dict[str, SymbolEngine] = {}
         self.quote_ctx = None
         self.broker: Broker | None = None
+        self.bars: dict[str, deque] = {}          # 画面表示用の直近の確定足
+        self.phase = "idle"                       # idle / connecting / warming / running / stopped / error
+        self.error: str | None = None
+        self.started_at: datetime | None = None
 
     # ------------------------------------------------------------------ util
     def now(self) -> datetime:
@@ -184,6 +190,7 @@ class LiveRunner:
             self._pending_bar.setdefault(eng.code, rows[-1])
             bars = bars[:-1]
         eng.warmup(bars)
+        self.bars.setdefault(eng.code, deque(maxlen=240)).extend(bars)
         if bars:
             self._last_bar_time[eng.code] = bars[-1].time
         log.info("%s warmed up with %d bars (last=%s, ready=%s)", eng.code, len(bars),
@@ -244,6 +251,7 @@ class LiveRunner:
         eng = self.engines[code]
         log.debug("%s bar %s O=%s H=%s L=%s C=%s V=%s", code, bar.time, bar.open, bar.high, bar.low, bar.close,
                   bar.volume)
+        self.bars.setdefault(code, deque(maxlen=240)).append(bar)
         eng.on_bar(bar, intrabar_exits=False)
 
     def _drain(self, timeout: float = 1.0) -> None:
@@ -259,6 +267,9 @@ class LiveRunner:
                 break
         latest_quote: dict[str, float] = {}
         for kind, code, payload in items:
+            if kind == "cmd":
+                self._on_command(payload)
+                continue
             if code not in self.engines:
                 continue
             if kind == "kline":
@@ -269,9 +280,55 @@ class LiveRunner:
         for code, price in latest_quote.items():
             self.engines[code].check_price(price, now)
 
+    def _on_command(self, cmd: str) -> None:
+        if cmd == "flatten":
+            now = self.now()
+            for eng in self.engines.values():
+                eng.force_flatten(now, "manual")
+        elif cmd == "pause":
+            for eng in self.engines.values():
+                eng.enabled = False
+            log.warning("新規エントリーを停止しました (保有中のポジションは通常どおり決済されます)")
+        elif cmd == "resume":
+            for eng in self.engines.values():
+                eng.enabled = True
+            log.info("新規エントリーを再開しました")
+
+    def request(self, cmd: str) -> None:
+        """別スレッド (GUI) からの操作。エンジンはランナーのスレッドでだけ動かす。"""
+        self.events.put(("cmd", None, cmd))
+
     def stop(self, *_):
         log.info("stop requested")
         self._stop = True
+
+    def snapshot(self) -> dict:
+        """GUI 表示用の状態。別スレッドから読むので失敗しても落ちないようにする。"""
+        risk = next(iter(self.engines.values())).risk if self.engines else None
+        symbols = []
+        for code, eng in list(self.engines.items()):
+            p = eng.position
+            last = eng.last_price
+            unreal = (last - p.entry_price) * p.qty if (p and last is not None) else 0.0
+            bid, ask = self.best_quote(code)
+            symbols.append({
+                "code": code, "last": last, "bid": bid, "ask": ask, "enabled": eng.enabled,
+                "ready": eng.strategy.ready,
+                "position": None if p is None else {
+                    "qty": p.qty, "entry": p.entry_price, "stop": p.stop, "target": p.target,
+                    "entry_time": str(p.entry_time), "bars_held": p.bars_held, "unrealized": unreal},
+                "bars": [[str(b.time), b.open, b.high, b.low, b.close] for b in list(self.bars.get(code, []))[-120:]],
+                "trades": [{"direction": t.direction, "qty": t.qty, "entry_time": str(t.entry_time),
+                            "entry": t.entry_price, "exit_time": str(t.exit_time), "exit": t.exit_price,
+                            "pnl": t.pnl, "reason": t.reason} for t in eng.trades[-50:]],
+            })
+        return {
+            "phase": self.phase, "error": self.error, "mode": self.cfg.mode, "market": self.cfg.market,
+            "strategy": self.cfg.strategy.name, "started_at": str(self.started_at) if self.started_at else None,
+            "now": str(self.now()),
+            "daily_pnl": risk.daily_pnl if risk else 0.0, "trades_today": risk.trades_today if risk else 0,
+            "halted": risk.halted_reason if risk else None, "symbols": symbols,
+        }
 
     def run(self) -> None:
         cfg = self.cfg
@@ -279,14 +336,19 @@ class LiveRunner:
                  cfg.strategy.name)
         if cfg.mode == "live":
             log.warning("!!! 実口座 (REAL) で発注します。自己責任で運用してください !!!")
-        self._connect()
+        self.started_at = self.now()
+        self.phase = "connecting"
         try:
+            self._connect()
             self._build_engines()
             self._subscribe()
+            self.phase = "warming"
             for eng in self.engines.values():
                 self._warmup(eng)
-            signal.signal(signal.SIGINT, self.stop)
-            signal.signal(signal.SIGTERM, self.stop)
+            if threading.current_thread() is threading.main_thread():
+                signal.signal(signal.SIGINT, self.stop)
+                signal.signal(signal.SIGTERM, self.stop)
+            self.phase = "running"
             last_status = 0.0
             while not self._stop:
                 self._drain(timeout=1.0)
@@ -296,6 +358,12 @@ class LiveRunner:
                 if _time.monotonic() - last_status > 60:
                     last_status = _time.monotonic()
                     self._log_status()
+        except BaseException as e:   # SystemExit も GUI に表示したいので捕まえる
+            self.phase = "error"
+            self.error = str(e)
+            log.error("停止しました: %s", e)
+            if threading.current_thread() is threading.main_thread():
+                raise
         finally:
             self._shutdown()
 
@@ -316,6 +384,8 @@ class LiveRunner:
             self.quote_ctx.close()
         if self.broker is not None:
             self.broker.close()
+        if self.phase != "error":
+            self.phase = "stopped"
         log.info("=== stopped ===")
 
 

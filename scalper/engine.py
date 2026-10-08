@@ -206,7 +206,7 @@ class SymbolEngine:
                                  target=target, best_price=fp, entry_commission=fill.commission, atr=atr,
                                  reason=signal.value)
         self.risk.on_open(self.code)
-        log.info("%s ENTER %s %d @ %.4f stop=%.4f target=%.4f", self.code, signal.value, fill.qty, fp,
+        log.info("%s ENTER %s %g @ %.4f stop=%.4f target=%.4f", self.code, signal.value, fill.qty, fp,
                  stop, target)
 
     def _exit(self, ref_price: float, t: datetime, reason: str, slippage: bool = True) -> None:
@@ -231,7 +231,7 @@ class SymbolEngine:
         trade = Trade(self.code, "LONG" if p.is_long else "SHORT", filled, p.entry_time, p.entry_price,
                       fill.time, fill.price, pnl, reason, p.bars_held)
         self.trades.append(trade)
-        log.info("%s EXIT %s %d @ %.4f pnl=%.2f (%s)", self.code, trade.direction, filled, fill.price, pnl,
+        log.info("%s EXIT %s %g @ %.4f pnl=%.2f (%s)", self.code, trade.direction, filled, fill.price, pnl,
                  reason)
         if self.on_trade:
             self.on_trade(trade)

@@ -19,5 +19,8 @@ scalper = "scalper.cli:main"
 [tool.setuptools.packages.find]
 include = ["scalper*"]
 
+[tool.setuptools.package-data]
+"scalper.gui" = ["static/*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
