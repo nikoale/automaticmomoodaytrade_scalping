@@ -175,6 +175,15 @@ tr:hover td:has(.empty) { background: none; }
 img.chart { width: 100%; border-radius: 12px; border: 1px solid var(--line); background: #fff; margin-top: 12px; }
 .prog td { text-align: left; white-space: normal; } .prog td:first-child { color: var(--muted); white-space: nowrap; }
 
+/* 画面の中のダイアログ (Mac アプリのウィンドウでは confirm / prompt が出ないため) */
+.modal-bg { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px;
+  background: rgba(5,7,12,.55); backdrop-filter: blur(6px); animation: fade .15s ease; }
+.modal { width: min(520px, 100%); background: var(--bg2); border: 1px solid var(--line-hi); border-radius: 18px; padding: 22px;
+  box-shadow: 0 30px 80px -20px rgba(0,0,0,.6); }
+.modal h3 { margin: 0 0 10px; font-size: 17px; } .modal .mb { font-size: 13.5px; color: var(--muted); line-height: 1.75; }
+.modal .mb b { color: var(--text); } .modal ul { margin: 8px 0 0; padding-left: 18px; }
+.modal .phrase { display: inline-block; margin-top: 4px; padding: 4px 10px; border-radius: 8px; background: var(--card-hi); color: var(--text); font-weight: 700; user-select: all; }
+
 /* トースト */
 .toasts { position: fixed; right: 20px; bottom: 20px; display: grid; gap: 10px; z-index: 50; width: min(420px, calc(100vw - 32px)); }
 .toast { display: flex; gap: 10px; align-items: flex-start; padding: 13px 14px; border-radius: 14px; font-size: 13px;
@@ -416,6 +425,7 @@ img.chart { width: 100%; border-radius: 12px; border: 1px solid var(--line); bac
                 <button id="btnRealLock" class="btn">ロックする（本番の注文を止める）</button>
                 <button id="btnRealDisallow" class="btn">許可を取り消して模擬口座に戻す</button>
               </div>
+              <div id="realWhy" class="small down" style="margin-top:10px"></div>
               <details class="help"><summary>本番に切り替えると何が変わる？</summary>
                 「引け後の処理」「寄り付き後の処理」（自動実行も）が本番口座で動きます。資金は上の上限まで（口座の総資産の方が少なければそちら）、
                 1 注文は上の上限まで株数を減らします。ボットの記録は模擬口座とは別です。証券会社側の逆指値は必ず入れ、入らなければ成行で売って止まります。
@@ -482,6 +492,31 @@ function toast(msg, kind = "info", sticky = false) {
   if (!sticky) setTimeout(() => el.remove(), kind === "err" ? 12000 : 5000);
 }
 
+/* ---------- 確認ダイアログ ---------- */
+function ask({ title, body = "", phrase = null, ok = "OK", danger = false }) {
+  return new Promise((resolve) => {
+    const bg = document.createElement("div");
+    bg.className = "modal-bg";
+    bg.innerHTML = `<div class="modal" role="dialog"><h3>${title}</h3><div class="mb">${body}</div>
+      ${phrase ? `<label>確認のため、下の文をそのまま入力してください（コピーして貼り付けても大丈夫です）</label><div class="phrase">${esc(phrase)}</div>
+        <input id="askIn" autocomplete="off" style="margin-top:10px" placeholder="${esc(phrase)}">` : ""}
+      <div class="btns" style="margin-top:18px"><button class="btn" data-c>やめる</button><button class="btn ${danger ? "danger" : "primary"}" data-ok>${ok}</button></div></div>`;
+    document.body.appendChild(bg);
+    const inp = bg.querySelector("#askIn"), okb = bg.querySelector("[data-ok]");
+    const norm = (v) => v.replace(/\s+/g, "");
+    if (inp) {
+      okb.disabled = true;
+      inp.oninput = () => { okb.disabled = norm(inp.value) !== norm(phrase); };
+      inp.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing && !okb.disabled) okb.click(); };
+      setTimeout(() => inp.focus(), 60);
+    } else setTimeout(() => okb.focus(), 60);
+    const done = (v) => { bg.remove(); resolve(v); };
+    bg.querySelector("[data-c]").onclick = () => done(null);
+    okb.onclick = () => done(inp ? phrase : true);
+    bg.addEventListener("keydown", (e) => { if (e.key === "Escape") done(null); });
+  });
+}
+
 /* ---------- メニュー ---------- */
 const I = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
 const TABS = [
@@ -529,10 +564,11 @@ $("chipConn").onclick = () => job("check");
 $("btnTradeCheck").onclick = () => job("trade_check");
 $("btnTradeClose").onclick = () => job("trade_close");
 $("btnTradeOpen").onclick = () => job("trade_open");
-$("btnTradeReset").onclick = () => { if (confirm("模擬口座のボットの注文を取り消して、記録を最初からにします。よろしいですか？")) job("trade_reset"); };
+$("btnTradeReset").onclick = async () => { if (await ask({ title: "模擬口座の記録をリセット", body: "ボットが出した有効な注文を取り消して、記録を最初からにします。", ok: "リセットする", danger: true })) job("trade_reset"); };
 async function toggleAuto() {
   const on = !(last && last.auto && last.auto.on);
-  if (on && !confirm("自動実行をオンにします。アプリを開いている間、予定の時刻に模擬口座で自動で注文を出します。よろしいですか？")) return;
+  const live = last && last.trade && last.trade.trade_env === "REAL";
+  if (on && !(await ask({ title: "自動実行をオンにする", body: `アプリを開いている間、予定の時刻に<b>${live ? "本番口座（実際のお金）" : "模擬口座"}</b>で自動で注文を出します。`, ok: "オンにする", danger: live }))) return;
   const r = await api("/api/auto", { on });
   if (!r.ok) toast(esc(r.error), "err"); else toast(on ? "自動実行をオンにしました" : "自動実行をオフにしました", "ok");
   poll();
@@ -540,7 +576,7 @@ async function toggleAuto() {
 $("btnAuto").onclick = toggleAuto;
 $("chipAuto").onclick = toggleAuto;
 async function tradeResume() {
-  if (!confirm("停止の原因を確かめましたか？（moomoo アプリで注文と保有株を見て、ボットの記録と合っているか）\n解除すると、次の処理から注文を出します。")) return;
+  if (!(await ask({ title: "発注の停止を解除", body: "停止の原因を確かめましたか？（moomoo アプリで注文と保有株を見て、ボットの記録と合っているか）<br>解除すると、次の処理から注文を出します。", ok: "解除する" }))) return;
   const r = await api("/api/trade_resume", {});
   if (!r.ok) toast(esc(r.error), "err"); else toast("停止を解除しました", "ok");
   poll();
@@ -548,7 +584,7 @@ async function tradeResume() {
 async function pwAction(action) {
   const pw = $("pwInput").value;
   if ((action === "keychain" || action === "session") && !pw) { $("pwMsg").textContent = "パスワードを入力してください"; return; }
-  if (action === "delete_keychain" && !confirm("キーチェーンから取引パスワードを削除しますか？")) return;
+  if (action === "delete_keychain" && !(await ask({ title: "キーチェーンから削除", body: "保存した取引パスワードを削除しますか？", ok: "削除する", danger: true }))) return;
   const r = await api("/api/password", { action, password: pw });
   $("pwInput").value = "";
   $("pwMsg").textContent = r.ok ? { keychain: "キーチェーンに保存しました", session: "この起動中だけ使います", delete_keychain: "キーチェーンから削除しました" }[action] || "" : r.error;
@@ -580,11 +616,15 @@ async function realAction(action, needPhrase, skip = false) {
   const r0 = (last && last.trade && last.trade.real) || {};
   let phrase = "";
   if (needPhrase) {
-    const msg = action === "allow"
-      ? `本番口座（実際のお金）での発注を許可します。\n資金の上限 ${yen(+$("realCap").value)}・1 注文 ${yen(+$("realMax").value)}\n\nよければ「${r0.phrase}」と入力してください`
-      : `この起動中、本番口座で発注します（自動実行がオンなら予定の時刻に注文を出します）。\n\nよければ「${r0.phrase}」と入力してください`;
-    phrase = prompt(msg, "");
-    if (phrase === null) return;
+    const body = action === "allow"
+      ? `本番口座（実際のお金）での発注を許可します。<br>資金の上限 <b>${yen(+$("realCap").value)}</b>・1 注文 <b>${yen(+$("realMax").value)}</b> まで。` +
+        (skip ? `<ul><li>模擬口座での「発注機能の確認」を<b>省略</b>します。日本の口座で逆指値（損切り）が通るかは、まだ確かめていません</li>
+          <li>通らなかった場合、ボットは買った直後にその株を成行で売って発注を止めます（手数料と値幅の分だけ損をします）</li></ul>` : "") +
+        "<br>このあと「② この起動中のロックを解除」をすると、本番で注文を出し始めます。"
+      : "この起動中、<b>本番口座（実際のお金）</b>で発注します。自動実行がオンなら、予定の時刻に注文を出します。";
+    phrase = await ask({ title: action === "allow" ? "① 本番口座を許可する" : "② この起動中のロックを解除", body, phrase: r0.phrase || "本番口座で発注する",
+                         ok: action === "allow" ? "許可する" : "ロックを解除する", danger: true });
+    if (!phrase) return;
   }
   if (action === "unlock") toast("取引パスワードでロック解除できるか確かめています…", "run");
   const r = await api("/api/real", { action, phrase, capital_jpy: +$("realCap").value, max_order_jpy: +$("realMax").value, skip_sim_check: skip });
@@ -595,14 +635,9 @@ async function realAction(action, needPhrase, skip = false) {
 }
 $("btnRealAllow").onclick = () => realAction("allow", true);
 $("btnRealUnlock").onclick = () => realAction("unlock", true);
-$("btnRealAllowSkip").onclick = () => {
-  if (!confirm("模擬口座での「発注機能の確認」をしないで本番口座を許可します。\n\n" +
-    "・日本の口座で逆指値（損切り）の注文が通るか、まだ確かめていません\n" +
-    "・通らなかった場合、ボットは買った直後にその株を成行で売って発注を止めます（手数料と値幅の分だけ損をします）\n\nそれでも進めますか？")) return;
-  realAction("allow", true, true);
-};
+$("btnRealAllowSkip").onclick = () => realAction("allow", true, true);
 $("btnRealLock").onclick = () => realAction("lock", false);
-$("btnRealDisallow").onclick = () => { if (confirm("本番口座の許可を取り消して、模擬口座に戻しますか？（証券会社に入っている逆指値はそのまま残ります）")) realAction("disallow", false); };
+$("btnRealDisallow").onclick = async () => { if (await ask({ title: "模擬口座に戻す", body: "本番口座の許可を取り消して、模擬口座に戻しますか？（証券会社に入っている逆指値はそのまま残ります）", ok: "模擬口座に戻す" })) realAction("disallow", false); };
 $("btnRealSave").onclick = () => realAction("settings", false);
 function renderReal(r) {
   if (!r || !changed("real", r)) return;
@@ -617,11 +652,15 @@ function renderReal(r) {
   $("realState").innerHTML = kv([["① 許可", r.allowed ? `<span class="tag warn">許可済み</span> <small>${esc((r.allowed_at || "").replace("T", " ").slice(0, 16))}</small>` : '<span class="tag">未許可</span>'],
     ["② この起動中", r.unlocked ? '<span class="tag down">ロック解除中</span>' : '<span class="tag">ロック中</span>'],
     ["今の発注先", live ? '<b class="down">本番口座（実際のお金）</b>' : r.allowed ? "なし（ロック解除するまで注文しません）" : "模擬口座"]]);
-  const allPre = (r.preconditions || []).every((p) => p.ok);
-  const onlyCheck = !allPre && (r.preconditions || []).filter((p) => !p.ok).every((p) => p.skippable);
-  $("btnRealAllowSkip").hidden = r.allowed || !onlyCheck;
-  $("btnRealAllow").hidden = !r.allowed && onlyCheck;
-  $("btnRealAllow").disabled = r.allowed || !allPre; $("btnRealUnlock").disabled = !r.allowed || r.unlocked || !allPre;
+  const pre = r.preconditions || [];
+  const checkMissing = pre.some((p) => p.skippable && !p.ok);
+  // 模擬口座の確認がまだなら「確認を省略して許可」を出す。ほかに足りないもの (パスワードなど) は下に赤字で出し、押したときも理由を出す
+  $("btnRealAllowSkip").hidden = r.allowed || !checkMissing;
+  $("btnRealAllow").hidden = !r.allowed && checkMissing;
+  $("btnRealAllow").disabled = r.allowed;
+  $("btnRealUnlock").disabled = !r.allowed || r.unlocked;
+  const why = pre.filter((p) => !p.ok && !p.skippable).map((p) => p.detail);
+  $("realWhy").textContent = !r.allowed && why.length ? "先に必要なこと: " + why.join(" / ") : "";
   $("btnRealLock").disabled = !r.unlocked; $("btnRealDisallow").disabled = !r.allowed;
   $("btnTradeCheck").title = live ? "本番口座では使えません（模擬口座だけ）" : "";
 }
