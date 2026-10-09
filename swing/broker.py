@@ -36,7 +36,8 @@ GUI_UNLOCK_HINT = "OpenD の画面右上の「ロック解除」ボタンで、�
 def gui_unlock_only(msg) -> bool:
     """GUI版 OpenD の「ロック解除はアプリからはできない (OpenD の画面で解除する)」というエラーか。2026-10-09 実機で判明。"""
     m = str(msg)
-    return ("GUI" in m and ("無効" in m or "禁用" in m or "disabled" in m.lower())) or "ロック解除ボタン" in m or "解锁按钮" in m
+    return (("GUI" in m and ("無効" in m or "禁用" in m or "disabled" in m.lower())) or "ロック解除ボタン" in m
+            or "解锁按钮" in m or GUI_UNLOCK_HINT in m)
 
 
 def _looks_locked(msg) -> bool:
