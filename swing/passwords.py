@@ -113,6 +113,9 @@ def verify(cfg, password: str) -> tuple[bool, str]:
     try:
         ret, data = ctx.unlock_trade(password=password)
         if ret != mm.RET_OK:
+            from .broker import GUI_UNLOCK_HINT, gui_unlock_only
+            if gui_unlock_only(data):
+                return False, f"GUI版 OpenD のため、アプリからはロック解除できません（パスワードが違うわけではありません）。{GUI_UNLOCK_HINT}"
             return False, f"ロック解除できませんでした (パスワードが違う可能性): {data}"
         ctx.unlock_trade(password=password, is_unlock=False)      # 確認だけなので、すぐにロックし直す
         return True, "パスワードは正しいです (ロック解除できることを確認し、すぐにロックし直しました)"

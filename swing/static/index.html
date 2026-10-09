@@ -629,6 +629,7 @@ async function realAction(action, needPhrase, skip = false) {
   if (action === "unlock") toast("取引パスワードでロック解除できるか確かめています…", "run");
   const r = await api("/api/real", { action, phrase, capital_jpy: +$("realCap").value, max_order_jpy: +$("realMax").value, skip_sim_check: skip });
   if (!r.ok) toast(esc(r.error), "err", true);
+  else if (action === "unlock" && r.real && r.real.note) toast(`<b>あと 1 つ: OpenD でロック解除</b><br>${esc(r.real.note)}`, "run", true);
   else toast({ allow: "本番口座を許可しました。注文を出すには ② ロック解除も必要です", unlock: "ロックを解除しました。次の処理から本番口座で発注します",
     lock: "ロックしました（本番の注文は出しません）", disallow: "模擬口座に戻しました", settings: "金額を保存しました" }[action], action === "unlock" || action === "allow" ? "run" : "ok");
   seen.real = null; poll();
@@ -651,6 +652,7 @@ function renderReal(r) {
   $("realCapNote").textContent = `資金の上限は ${fmt(r.hard_max, 0)} 円まで（config の real_beta.capital_jpy_hard_max）。口座の総資産の方が少なければそちらを使います。`;
   $("realState").innerHTML = kv([["① 許可", r.allowed ? `<span class="tag warn">許可済み</span> <small>${esc((r.allowed_at || "").replace("T", " ").slice(0, 16))}</small>` : '<span class="tag">未許可</span>'],
     ["② この起動中", r.unlocked ? '<span class="tag down">ロック解除中</span>' : '<span class="tag">ロック中</span>'],
+    ...(r.note ? [["取引のロック", `<span class="tag warn">OpenD の画面で解除</span> <small>${esc(r.note)}</small>`]] : []),
     ["今の発注先", live ? '<b class="down">本番口座（実際のお金）</b>' : r.allowed ? "なし（ロック解除するまで注文しません）" : "模擬口座"]]);
   const pre = r.preconditions || [];
   const checkMissing = pre.some((p) => p.skippable && !p.ok);

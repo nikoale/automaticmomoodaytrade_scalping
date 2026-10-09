@@ -38,9 +38,6 @@ def test_cannot_allow_without_simulate_stop_check_and_password(app):
     with pytest.raises(RuntimeError, match="取引時間中"):
         app.real_action("allow", realbeta.PHRASE)
     _cap(app)
-    with pytest.raises(RuntimeError, match="取引パスワード"):
-        app.real_action("allow", realbeta.PHRASE)
-    app.passwords.use_for_session(SECRET)
     with pytest.raises(ValueError, match="確認の文"):
         app.real_action("allow", "はい")
     r = app.real_action("allow", realbeta.PHRASE)
@@ -119,6 +116,52 @@ def test_allow_with_skipped_simulate_check(app):
     assert not realbeta.load(app.cfg()).get("skip_sim_check")
 
 
-def test_skip_does_not_skip_password(app):
-    with pytest.raises(RuntimeError, match="取引パスワード"):
-        app.real_action("allow", realbeta.PHRASE, skip_sim_check=True)
+GUI_ERR = "OpenD画面右上のロック解除ボタンから取引のロック解除をしてください。GUI版OpenDではロック解除インターフェースが無効化されています"
+
+
+def test_gui_opend_unlock_is_done_in_opend(app, monkeypatch):
+    """GUI版 OpenD はアプリからロック解除できない (2026-10-09 実機のエラー文)。OpenD の画面で解除してもらう。"""
+    from swing import broker
+    assert broker.gui_unlock_only(GUI_ERR) and not broker.gui_unlock_only("unlock failed")
+    m = _fake_moomoo()
+    m.OpenSecTradeContext.unlock_trade = lambda self, password=None, password_md5=None, is_unlock=True: (-1, GUI_ERR)
+    monkeypatch.setitem(sys.modules, "moomoo", m)
+    app.passwords.use_for_session(SECRET)
+    app.real_action("allow", realbeta.PHRASE, skip_sim_check=True)
+    r = app.real_action("unlock", realbeta.PHRASE)
+    assert r["env"] == "REAL" and "ロック解除" in r["note"]
+
+
+def test_unlock_without_password_relies_on_opend(app):
+    app.real_action("allow", realbeta.PHRASE, skip_sim_check=True)
+    r = app.real_action("unlock", realbeta.PHRASE)
+    assert r["env"] == "REAL" and r["note"]
+
+
+def test_broker_real_continues_when_gui_opend(monkeypatch):
+    import types
+    from swing import broker
+    from swing_helpers import cfg as make_cfg
+
+    class Ctx:
+        def get_acc_list(self):
+            import pandas as pd
+            return 0, pd.DataFrame([{"acc_id": 9, "trd_env": "REAL", "trdmarket_auth": ["US"]}])
+
+        def unlock_trade(self, password=None, **k):
+            return -1, GUI_ERR
+
+        def close(self):
+            pass
+    m = types.ModuleType("moomoo")
+    m.RET_OK = 0
+    m.TrdEnv = types.SimpleNamespace(REAL="REAL", SIMULATE="SIMULATE")
+    monkeypatch.setitem(sys.modules, "moomoo", m)
+    c = make_cfg(moomoo={"trd_env": "REAL", "allow_real": True})
+    _, unlock = broker.resolve_env(c, confirm=lambda: True)
+    b = broker.Broker(c, "REAL", unlock, password="x", ctx=Ctx())
+    assert b.acc_id == 9
+    try:
+        b._ok(-1, "trade is locked, please unlock", "発注")
+    except broker.BrokerError as e:
+        assert "OpenD の画面右上" in str(e)

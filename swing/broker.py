@@ -30,6 +30,18 @@ DEAD = {"CANCELLED_ALL", "FAILED", "SUBMIT_FAILED", "DISABLED", "DELETED", "FILL
 UNKNOWN = {"TIMEOUT", "N/A", "NONE", ""}           # 結果が分からない → 安全側 (停止)
 
 REAL_CONFIRM_PHRASE = "本番口座で発注する"
+GUI_UNLOCK_HINT = "OpenD の画面右上の「ロック解除」ボタンで、取引のロックを解除してください（GUI版 OpenD ではアプリからロック解除できません）"
+
+
+def gui_unlock_only(msg) -> bool:
+    """GUI版 OpenD の「ロック解除はアプリからはできない (OpenD の画面で解除する)」というエラーか。2026-10-09 実機で判明。"""
+    m = str(msg)
+    return ("GUI" in m and ("無効" in m or "禁用" in m or "disabled" in m.lower())) or "ロック解除ボタン" in m or "解锁按钮" in m
+
+
+def _looks_locked(msg) -> bool:
+    m = str(msg).lower()
+    return any(k in m for k in ("unlock", "解锁", "ロック解除", "locked"))
 
 
 class BrokerError(RuntimeError):
@@ -96,11 +108,16 @@ class Broker:
         try:
             self.acc_id = self._pick_account()
             if env == "REAL":
+                # GUI版 OpenD はアプリからのロック解除を受け付けない (OpenD の画面で解除する)。その場合は解除済みの前提で続け、
+                # ロックされたままなら最初の注文がエラーになり、発注停止になる
                 if not password:
-                    raise BrokerError("本番口座には取引パスワードが必要です")
-                ret, data = self.ctx.unlock_trade(password=password)
-                if ret != mm.RET_OK:
-                    raise BrokerError(f"ロック解除できませんでした: {data}")
+                    log.info("取引パスワードがないので、OpenD の画面でロック解除されている前提で続けます")
+                else:
+                    ret, data = self.ctx.unlock_trade(password=password)
+                    if ret != mm.RET_OK and gui_unlock_only(data):
+                        log.info("GUI版 OpenD: OpenD の画面でロック解除されている前提で続けます")
+                    elif ret != mm.RET_OK:
+                        raise BrokerError(f"ロック解除できませんでした: {data}")
         except Exception:
             self.ctx.close()
             raise
@@ -116,7 +133,8 @@ class Broker:
 
     def _ok(self, ret, data, what: str):
         if ret != self.mm.RET_OK:
-            raise BrokerError(f"{what} 失敗: {data}")
+            hint = f"。{GUI_UNLOCK_HINT}" if self.env_name == "REAL" and _looks_locked(data) else ""
+            raise BrokerError(f"{what} 失敗: {data}{hint}")
         return data
 
     # ---------------------------------------------------------------- 口座

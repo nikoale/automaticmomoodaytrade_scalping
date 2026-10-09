@@ -356,10 +356,18 @@ class App:
             bad = [r for r in realbeta.preconditions(cfg, bool(pw), beta) if not r["ok"]]
             if bad:
                 raise RuntimeError("条件がそろっていません: " + " / ".join(r["detail"] for r in bad))
-            ok, msg = verify(cfg, pw)                  # 実際にロック解除できるか (すぐロックし直す。注文はしない)
-            if not ok:
-                raise RuntimeError(msg)
+            from .broker import GUI_UNLOCK_HINT, gui_unlock_only
+            note = ""
+            if pw:
+                ok, msg = verify(cfg, pw)              # 実際にロック解除できるか (すぐロックし直す。注文はしない)
+                if not ok and gui_unlock_only(msg):
+                    note = GUI_UNLOCK_HINT
+                elif not ok:
+                    raise RuntimeError(msg)
+            else:
+                note = GUI_UNLOCK_HINT
             self.real_unlocked = True
+            self.real_note = note
             log.warning("[本番] この起動中のロックを解除しました。次の処理から本番口座で発注します (資金 %s 円まで)",
                         f"{beta['capital_jpy']:,}")
         elif action == "lock":
@@ -381,6 +389,7 @@ class App:
         beta = realbeta.load(cfg)
         pw, _ = self.passwords.get()
         return {**beta, "unlocked": self.real_unlocked, "env": self.trade_env(), "phrase": realbeta.PHRASE,
+                "note": getattr(self, "real_note", "") if self.real_unlocked else "",
                 "hard_max": cfg["real_beta"]["capital_jpy_hard_max"], "preconditions": realbeta.preconditions(cfg, bool(pw), beta)}
 
     def _job_trade(self, what: str) -> dict:

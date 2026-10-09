@@ -9,7 +9,8 @@
 許可する前の条件 (コードで強制する):
   - 模擬口座の「発注機能の確認」を米国の取引時間中に行い、逆指値まですべて通っていること
     (ユーザーが「確認を省略して許可」を選んだときは省略する。その場合も、逆指値が入らなければ成行で売って止まる)
-  - 取引パスワードが設定されていて、ロック解除できること (ロック解除のときに確認)
+  - 取引パスワード: 保存してあればロック解除のときに確かめる。GUI版 OpenD はアプリからのロック解除ができないので
+    (2026-10-09 実機で判明)、その場合は OpenD の画面右上の「ロック解除」で解除してもらう (パスワードは不要)
   - 本番の資金・1 注文の上限が config の real_beta.capital_jpy_hard_max 以下
 
 本番の資金は real_beta.capital_jpy (画面で変更可) を上限にする (口座の総資産の方が少なければそちら)。
@@ -79,8 +80,9 @@ def preconditions(cfg, password_set: bool, beta: dict | None = None) -> list[dic
     if not ok and (beta or {}).get("skip_sim_check"):
         ok, why = True, "省略（あなたの判断で、模擬口座での確認なしに許可）"
     rows = [{"name": "模擬口座で逆指値まで確認", "ok": ok, "detail": why, "skippable": True}]
-    rows.append({"name": "取引パスワード", "ok": bool(password_set),
-                 "detail": "設定済み" if password_set else "「取引パスワード」で保存してください"})
+    rows.append({"name": "取引のロック解除", "ok": True,
+                 "detail": "取引パスワードで確かめます" if password_set
+                 else "OpenD の画面右上の「ロック解除」で解除します（GUI版 OpenD はアプリからは解除できません）"})
     if not cfg["real_beta"]["require_simulate_check"]:
         rows[0]["ok"], rows[0]["detail"] = True, "確認を省略する設定 (real_beta.require_simulate_check: false)"
     return rows
