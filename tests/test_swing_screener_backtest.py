@@ -223,3 +223,12 @@ def test_gap_compare_in_suite_and_report(tmp_path):
     st = json.loads((out / "stats.json").read_text())
     assert st["gap_compare"]["gap_market"]["current"] and "gap_2" not in st["stats"]
     assert "寄り付きの買い方の比較" in (out / "report.md").read_text()
+
+
+def test_diagnose_breakdown():
+    b = 280
+    res, c = _bt({"A": trend_with_breakout(N, b)})
+    d = backtest.diagnose(res, c.fees["slippage_pct"])
+    assert d["手数料合計_usd"] > 0 and d["スリッページ合計_usd"] > 0
+    assert d["コスト前の損益_usd"] == pytest.approx(d["損益合計_usd"] + d["手数料合計_usd"] + d["スリッページ合計_usd"])
+    assert sum(v["回数"] for v in d["手仕舞い理由別"].values()) == len(res.trades)

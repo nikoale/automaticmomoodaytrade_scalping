@@ -39,6 +39,7 @@ class Trade:
     reason: str
     held_days: int
     rank: int
+    entry_atr: float = 0.0   # エントリー時の ATR (R 倍数 = 損益 ÷ 当初のリスク の計算用)
 
 
 @dataclass
@@ -111,7 +112,7 @@ def run(cfg, ind: dict, earnings: dict[str, list[date]] | None = None, shares: d
         net = risk.sell_net(pos.shares, px, cfg)
         ledger.add_sale(i + cfg.account["settlement_days"], net)
         t = Trade(sym, pos.entry_date, dates[i].date(), pos.shares, pos.entry_price, px, pos.entry_cost, net,
-                  net - pos.entry_cost, reason, pos.held_days(i), pos.rank)
+                  net - pos.entry_cost, reason, pos.held_days(i), pos.rank, pos.entry_atr)
         trades.append(t)
         cooldown_until[sym] = i + st["reentry_cooldown_days"]
         note(i, "exit", sym, reason=reason, price=round(px, 4), shares=pos.shares, pnl=round(t.pnl, 2))
@@ -264,6 +265,44 @@ def _with(cfg, section: str, key: str, value):
 
 
 # ---------------------------------------------------------------- 評価指標
+def diagnose(res: Result, slip_pct: float, stop_atr: float = 2.0) -> dict:
+    """どこで負けているか: 手仕舞い理由別の損益、コスト (手数料・スリッページ) の重さ、R 倍数、連敗。"""
+    t = res.trades
+    if not t:
+        return {}
+    slip = slip_pct / 100.0
+    fees = sum((x.cost - x.shares * x.entry_price) + (x.shares * x.exit_price - x.proceeds) for x in t)
+    slp = sum(x.shares * x.entry_price * slip / (1 + slip) + x.shares * x.exit_price * slip / (1 - slip) for x in t)
+    pnl = sum(x.pnl for x in t)
+    by = {}
+    for x in t:
+        d = by.setdefault(x.reason, {"回数": 0, "損益合計_usd": 0.0})
+        d["回数"] += 1
+        d["損益合計_usd"] += x.pnl
+    for d in by.values():
+        d["平均_usd"] = d["損益合計_usd"] / d["回数"]
+    rs = [x.pnl / (x.shares * stop_atr * x.entry_atr) for x in t if x.entry_atr > 0 and x.shares > 0]
+    wins = [x for x in t if x.pnl > 0]
+    loss = [x for x in t if x.pnl <= 0]
+    streak = best = 0
+    for x in t:
+        streak = streak + 1 if x.pnl <= 0 else 0
+        best = max(best, streak)
+    return {
+        "損益合計_usd": pnl, "手数料合計_usd": fees, "スリッページ合計_usd": slp, "コスト前の損益_usd": pnl + fees + slp,
+        "コスト_1取引あたり_usd": (fees + slp) / len(t),
+        "平均R": sum(rs) / len(rs) if rs else None,
+        "勝ちの平均R": (sum(r for r in rs if r > 0) / max(1, sum(1 for r in rs if r > 0))) if rs else None,
+        "負けの平均R": (sum(r for r in rs if r <= 0) / max(1, sum(1 for r in rs if r <= 0))) if rs else None,
+        "大勝ち(3R以上)_回数": sum(1 for r in rs if r >= 3),
+        "平均保有日数_勝ち": sum(x.held_days for x in wins) / len(wins) if wins else None,
+        "平均保有日数_負け": sum(x.held_days for x in loss) / len(loss) if loss else None,
+        "買った日に損切り_割合_pct": 100.0 * sum(1 for x in t if x.held_days == 0 and x.reason in ("stop", "trailing_stop")) / len(t),
+        "最大連敗": best,
+        "手仕舞い理由別": by,
+    }
+
+
 def stats(res: Result) -> dict:
     eq = res.equity
     t = res.trades

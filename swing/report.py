@@ -80,6 +80,11 @@ def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path
     runs = {k: r for k, r in runs.items() if not k.startswith("gap_")}
     st = {k: backtest.stats(r) for k, r in runs.items()}
     gst = {k: backtest.stats(r) for k, r in gap_runs.items()}
+    diag = backtest.diagnose(runs["full_on"], cfg.fees["slippage_pct"], cfg.strategy["initial_stop_atr"])
+    bq = ind["bench_close"].reindex(runs["full_on"].equity.index).dropna()
+    if len(bq) > 1:
+        yrs = max((bq.index[-1] - bq.index[0]).days / 365.25, 1e-9)
+        diag["指数の年率_pct"] = ((bq.iloc[-1] / bq.iloc[0]) ** (1 / yrs) - 1) * 100
     cur = gap_key(cfg.strategy["entry_limit_gap_pct"])
 
     # ---- 図
@@ -127,7 +132,8 @@ def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path
         backtest.trades_frame(r).to_csv(out / f"trades_{k}.csv", index=False)
     payload = {"created": datetime.now().isoformat(timespec="seconds"), "data": data_info, "notes": notes,
                "fx": fx, "labels": {k: r.label for k, r in runs.items()}, "stats": st,
-               "gap_compare": {k: {"label": r.label, "current": k == cur, "stats": gst[k]} for k, r in gap_runs.items()}}
+               "gap_compare": {k: {"label": r.label, "current": k == cur, "stats": gst[k]} for k, r in gap_runs.items()},
+               "diagnose": diag}
     (out / "stats.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
     # ---- Markdown
@@ -162,6 +168,20 @@ def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path
     for y in sorted(set(yr_on) | set(yr_off)):
         L.append(f"| {y} | {_fmt(yr_on.get(y, 0) * fx, 0)} | {_fmt(yr_off.get(y, 0) * fx, 0)} |")
     L.append("")
+    if diag:
+        L.append("## どこで負けているか（全期間・指数フィルターあり）\n")
+        L.append(f"- 損益合計 {_fmt(diag['損益合計_usd'] * fx, 0)} 円 = コスト前 {_fmt(diag['コスト前の損益_usd'] * fx, 0)} 円 "
+                 f"− 手数料 {_fmt(diag['手数料合計_usd'] * fx, 0)} 円 − スリッページ {_fmt(diag['スリッページ合計_usd'] * fx, 0)} 円"
+                 f"（1 取引あたりのコスト {_fmt(diag['コスト_1取引あたり_usd'] * fx, 0)} 円）")
+        L.append(f"- 平均 R {_fmt(diag['平均R'], 2)}（勝ち {_fmt(diag['勝ちの平均R'], 2)} / 負け {_fmt(diag['負けの平均R'], 2)}）・"
+                 f"3R 以上の大勝ち {diag['大勝ち(3R以上)_回数']} 回・最大連敗 {diag['最大連敗']} 回・"
+                 f"買った日に損切り {_fmt(diag['買った日に損切り_割合_pct'])}%")
+        if diag.get("指数の年率_pct") is not None:
+            L.append(f"- 同じ期間の {cfg.data.benchmark} の年率 {_fmt(diag['指数の年率_pct'])}%（買って持っているだけの場合）")
+        L.append("\n| 手仕舞い理由 | 回数 | 損益合計 (円) | 1 回の平均 (円) |\n|---|---:|---:|---:|")
+        for k, d in sorted(diag["手仕舞い理由別"].items(), key=lambda kv: kv[1]["損益合計_usd"]):
+            L.append(f"| {k} | {d['回数']} | {_fmt(d['損益合計_usd'] * fx, 0)} | {_fmt(d['平均_usd'] * fx, 0)} |")
+        L.append("")
     if gap_runs:
         L.append("## 寄り付きの買い方の比較（全期間・指数フィルターあり）\n")
         L.append("「上限 +N%」= 前日終値 × (1 + N%) までなら寄り付きで買い、それより高く始まったら見送る。"

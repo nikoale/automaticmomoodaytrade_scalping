@@ -894,6 +894,22 @@ function renderReport(rep) {
   h += `<div class="tbl"><table><tr><th>指標</th>${keys.map((k) => `<th>${esc(L[k] || k)}</th>`).join("")}</tr>`;
   for (const [name, fn] of rows) h += `<tr><td>${name}</td>${keys.map((k) => `<td>${S[k] ? fn(S[k]) : "—"}</td>`).join("")}</tr>`;
   h += `</table></div></div>`;
+  const D = rep.diagnose;
+  if (D && D["損益合計_usd"] !== undefined) {
+    const R = (v) => v == null ? "—" : (v > 0 ? "+" : "") + fmt(v, 2) + "R";
+    const reasons = Object.entries(D["手仕舞い理由別"] || {}).sort((a, b) => a[1]["損益合計_usd"] - b[1]["損益合計_usd"]);
+    h += `<div class="card"><h2>どこで負けているか<span class="act muted small">全期間・指数フィルターあり</span></h2>
+      <div class="kpis" style="margin-bottom:12px">
+        <div class="kpi"><div class="k">コスト前の損益</div><div class="v num ${cls(D["コスト前の損益_usd"])}">${sgn(D["コスト前の損益_usd"] * fx, yen)}</div><div class="s">手数料・スリッページを引く前</div></div>
+        <div class="kpi"><div class="k">手数料 + スリッページ</div><div class="v num down">-${yen((D["手数料合計_usd"] + D["スリッページ合計_usd"]) * fx).slice(0)}</div><div class="s">1 取引 ${yen(D["コスト_1取引あたり_usd"] * fx)}</div></div>
+        <div class="kpi"><div class="k">平均 R</div><div class="v num ${cls(D["平均R"])}">${R(D["平均R"])}</div><div class="s">勝ち ${R(D["勝ちの平均R"])} / 負け ${R(D["負けの平均R"])}</div></div>
+        <div class="kpi"><div class="k">3R 以上の大勝ち</div><div class="v num">${fmt(D["大勝ち(3R以上)_回数"], 0)} 回</div><div class="s">最大連敗 ${fmt(D["最大連敗"], 0)} 回</div></div>
+        <div class="kpi"><div class="k">指数を持っていただけ</div><div class="v num ${cls(D["指数の年率_pct"])}">${D["指数の年率_pct"] == null ? "—" : pct(D["指数の年率_pct"], 1)}</div><div class="s">同じ期間の年率</div></div>
+      </div>
+      <div class="tbl"><table><tr><th>手仕舞い理由</th><th>回数</th><th>損益合計</th><th>1回の平均</th></tr>${reasons.map(([k, d]) =>
+        `<tr><td>${esc(REASONS[k] || k)}</td><td>${fmt(d["回数"], 0)}</td><td class="${cls(d["損益合計_usd"])}">${sgn(d["損益合計_usd"] * fx, yen)}</td><td class="${cls(d["平均_usd"])}">${sgn(d["平均_usd"] * fx, yen)}</td></tr>`).join("")}</table></div>
+      <div class="muted small" style="margin-top:10px">R = 損益 ÷ 最初に決めた損失（ATR×2）。平均 R がマイナスなら、ルールそのものに優位性がありません。コスト前はプラスでコスト後にマイナスなら、取引が多すぎるか 1 回が小さすぎます。買った日に損切り ${fmt(D["買った日に損切り_割合_pct"], 1)}%。</div></div>`;
+  }
   const G = rep.gap_compare || {};
   if (Object.keys(G).length) {
     const vals = Object.values(G).map((x) => x.stats["総損益_usd"]);
