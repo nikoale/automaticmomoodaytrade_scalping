@@ -61,6 +61,8 @@ screener:
   volume_ratio_short: 20         # 出来高の伸び = 20 日平均 / 100 日平均
   volume_ratio_long: 100
   top_n: 20                      # 監視リストの銘柄数
+  rank_by: volume_ratio          # 並べ方: volume_ratio = 出来高の伸び (指示書どおり) / momentum = 6 ヶ月上昇率
+  max_atr_pct: null              # ATR が株価の N% を超える (値動きが荒すぎる) 銘柄を除く。null = 除かない
   index_sma: 200                 # 指数 (SPY) がこの移動平均を下回る週は監視リストを空にする
   breakout_days: 20              # 監視リストに添付する 20 日高値
   atr_days: 14
@@ -68,6 +70,7 @@ screener:
 strategy:
   breakout_days: 20              # 終値が直近 20 日高値を上抜け
   breakout_volume_mult: 1.5      # その日の出来高が 20 日平均の 1.5 倍以上
+  entry_close_pos_min: null      # ブレイクの日、終値がその日の値幅の上から何割以内か (0.7 = 上 30% で引けた)。null = 見ない
   max_positions: 3
   reentry_cooldown_days: 5       # 手仕舞いから N 営業日は同じ銘柄に再エントリーしない
   atr_days: 14

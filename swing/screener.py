@@ -103,6 +103,9 @@ def screen_at(ind: dict, i: int, cfg, market_cap: dict[str, float] | None = None
 
     df = df[(df["close"] > df["sma_fast"]) & (df["sma_fast"] > df["sma_slow"])]
     res.counts["トレンド"] = len(df)
+    if sc["max_atr_pct"] is not None:
+        df = df[df["atr"] / df["close"] * 100 <= sc["max_atr_pct"]]
+        res.counts["値動きの荒さ"] = len(df)
     df = df[df["mom_pct"] >= 1.0 - sc["momentum_top_pct"] / 100.0]
     res.counts["6ヶ月上昇率 上位"] = len(df)
 
@@ -125,7 +128,7 @@ def screen_at(ind: dict, i: int, cfg, market_cap: dict[str, float] | None = None
     df = df.loc[keep]
     res.counts["決算日"] = len(df)
 
-    df = df.sort_values("vol_ratio", ascending=False).head(sc["top_n"])
+    df = df.sort_values("mom_pct" if sc["rank_by"] == "momentum" else "vol_ratio", ascending=False).head(sc["top_n"])
     for rank, (s, r) in enumerate(df.iterrows(), 1):
         res.items.append({
             "rank": rank, "symbol": s, "name": (names or {}).get(s), "close": round(float(r["close"]), 4),
@@ -217,7 +220,8 @@ def run_weekly_moomoo(cfg, now_jst: datetime | None = None, client=None) -> Path
         stocks = m.common_stocks()
         names = dict(zip(stocks["code"], stocks["name"]))
         common = [c for c in server if c["code"] in names and not data.name_excluded(names[c["code"]], cfg)]
-        common.sort(key=lambda c: c["vol_ratio"] or 0, reverse=True)
+        rk = "momentum_pct" if cfg.screener["rank_by"] == "momentum" else "vol_ratio"
+        common.sort(key=lambda c: c[rk] or 0, reverse=True)
         picked = common[: md["candidates"]]
         if remain < len(picked) + 1:
             log.warning("取得枠の残り (%d) が候補数より少ないので %d 銘柄に減らします", remain, max(remain - 1, 0))

@@ -18,8 +18,8 @@ REQUIRED = {
     "screener": ["price_min", "price_max", "avg_volume_days", "avg_volume_min", "market_cap_min_usd",
                  "earnings_exclude_days", "earnings_unknown_policy", "sma_fast", "sma_slow", "momentum_days",
                  "momentum_top_pct", "volume_ratio_short", "volume_ratio_long", "top_n", "index_sma",
-                 "breakout_days", "atr_days"],
-    "strategy": ["breakout_days", "breakout_volume_mult", "max_positions", "reentry_cooldown_days", "atr_days",
+                 "breakout_days", "atr_days", "rank_by", "max_atr_pct"],
+    "strategy": ["breakout_days", "breakout_volume_mult", "entry_close_pos_min", "max_positions", "reentry_cooldown_days", "atr_days",
                  "initial_stop_atr", "trail_trigger_atr", "trail_sma", "trail_atr", "time_exit_days",
                  "time_exit_min_gain_atr", "earnings_exit_days_before", "index_filter", "entry_limit_gap_pct"],
     "risk": ["risk_per_trade_pct", "max_position_pct", "weekly_loss_limit_pct", "allow_fractional"],
@@ -80,6 +80,8 @@ def load(path: str | Path | None = None, overrides: dict | None = None) -> Confi
         raise ValueError("account.capital_source は account / config")
     if data["data"]["screener_source"] not in ("moomoo", "free"):
         raise ValueError("data.screener_source は moomoo / free")
+    if data["screener"]["rank_by"] not in ("volume_ratio", "momentum"):
+        raise ValueError("screener.rank_by は volume_ratio / momentum")
     g = data["strategy"]["entry_limit_gap_pct"]
     if g is not None and not (isinstance(g, (int, float)) and 0 <= g <= 20):
         raise ValueError("strategy.entry_limit_gap_pct は null (成行) か 0〜20 の数値 (%)")

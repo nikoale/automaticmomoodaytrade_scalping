@@ -220,7 +220,8 @@ def run(cfg, ind: dict, earnings: dict[str, list[date]] | None = None, shares: d
                 sym = item["symbol"]
                 if sym in positions or sym not in c.columns or cooldown_until.get(sym, -1) >= i + 1:
                     continue
-                if not strategy.entry_signal(_v(c, i, sym), _v(hprev, i, sym), _v(v, i, sym), _v(avprev, i, sym), cfg):
+                if not strategy.entry_signal(_v(c, i, sym), _v(hprev, i, sym), _v(v, i, sym), _v(avprev, i, sym), cfg,
+                                             _v(h, i, sym), _v(lo, i, sym)):
                     continue
                 a, cl = _v(atr, i, sym), _v(c, i, sym)
                 cash_next = ledger.available(i + 1) - planned

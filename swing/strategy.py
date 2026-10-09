@@ -41,12 +41,20 @@ def _ok(*xs) -> bool:
     return all(x is not None and not (isinstance(x, float) and math.isnan(x)) for x in xs)
 
 
-def entry_signal(close, high_prev, volume, avg_vol_prev, cfg) -> bool:
-    """終値が前日までの N 日高値を上抜け、かつ出来高が平均の 1.5 倍以上。"""
+def entry_signal(close, high_prev, volume, avg_vol_prev, cfg, high=None, low=None) -> bool:
+    """終値が前日までの N 日高値を上抜け、かつ出来高が平均の 1.5 倍以上。
+    entry_close_pos_min があれば、終値がその日の値幅の上の方 (強い引け) であることも求める。"""
     if not _ok(close, high_prev, volume, avg_vol_prev) or avg_vol_prev <= 0:
         return False
     st = cfg.strategy
-    return close > high_prev and volume >= avg_vol_prev * st["breakout_volume_mult"]
+    if not (close > high_prev and volume >= avg_vol_prev * st["breakout_volume_mult"]):
+        return False
+    m = st.get("entry_close_pos_min")
+    if m is not None:
+        if not _ok(high, low) or high <= low:
+            return False
+        return (close - low) / (high - low) >= m
+    return True
 
 
 def initial_stop(entry_price: float, atr: float, cfg) -> float:

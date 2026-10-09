@@ -586,7 +586,8 @@ class Executor:
             cd = self.st["cooldown"].get(sym)
             if cd and nxt <= date.fromisoformat(cd):
                 continue
-            if not strategy.entry_signal(v("close", sym), v("high_prev", sym), v("volume", sym), v("avg_vol_prev", sym), cfg):
+            if not strategy.entry_signal(v("close", sym), v("high_prev", sym), v("volume", sym), v("avg_vol_prev", sym), cfg,
+                                         v("high", sym), v("low", sym)):
                 continue
             a, cl = v("atr", sym), v("close", sym)
             n = risk.position_size(size_equity, cl, a, cfg, cash)

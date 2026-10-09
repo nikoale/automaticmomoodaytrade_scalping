@@ -79,7 +79,7 @@ def run_variants(cfg, ind, earnings, shares) -> dict:
     out = {}
     for n, v in enumerate(cfg.backtest["variants"] or []):
         c = copy.deepcopy(cfg)
-        for sec in ("strategy", "risk"):
+        for sec in ("strategy", "risk", "screener"):
             for k, val in (v.get(sec) or {}).items():
                 if k not in c[sec]:
                     raise ValueError(f"改善案「{v['name']}」の {sec}.{k} は config にありません")
@@ -93,7 +93,8 @@ def run_variants(cfg, ind, earnings, shares) -> dict:
             r = backtest.run(c, ind_v, earnings, shares, start=str(s.date()), end=str(e.date()), index_filter=True,
                              label=v["name"], record_decisions=False)
             res[key] = {"stats": backtest.stats(r), "diag": backtest.diagnose(r, c.fees["slippage_pct"], c.strategy["initial_stop_atr"])}
-        out[f"v{n}"] = {"name": v["name"], "why": v.get("why", ""), "strategy": v.get("strategy") or {}, "risk": v.get("risk") or {}, **res}
+        out[f"v{n}"] = {"name": v["name"], "why": v.get("why", ""), "strategy": v.get("strategy") or {}, "risk": v.get("risk") or {},
+                        "screener": v.get("screener") or {}, **res}
     return out
 
 
