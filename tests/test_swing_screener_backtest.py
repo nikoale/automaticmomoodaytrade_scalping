@@ -232,3 +232,16 @@ def test_diagnose_breakdown():
     assert d["手数料合計_usd"] > 0 and d["スリッページ合計_usd"] > 0
     assert d["コスト前の損益_usd"] == pytest.approx(d["損益合計_usd"] + d["手数料合計_usd"] + d["スリッページ合計_usd"])
     assert sum(v["回数"] for v in d["手仕舞い理由別"].values()) == len(res.trades)
+
+
+def test_variants_run_is_and_oos():
+    from swing import report
+    c = cfg(backtest={"start": str(DATES[200].date()), "out_of_sample_years": 0,
+                      "variants": [{"name": "今"}, {"name": "55日", "strategy": {"breakout_days": 55}},
+                                   {"name": "2銘柄", "strategy": {"max_positions": 2}, "risk": {"max_position_pct": 50.0}}]})
+    ind = indicators.compute_all(make_panel({"A": trend_with_breakout(N, 280)}, DATES), c)
+    v = report.run_variants(c, ind, {}, None)
+    assert [x["name"] for x in v.values()] == ["今", "55日", "2銘柄"]
+    assert "stats" in v["v1"]["is"] and "stats" in v["v1"]["oos"]
+    with pytest.raises(ValueError, match="config にありません"):
+        report.run_variants(cfg(backtest={"variants": [{"name": "x", "strategy": {"nope": 1}}]}), ind, {}, None)

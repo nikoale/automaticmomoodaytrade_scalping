@@ -28,8 +28,8 @@ REQUIRED = {
     "real_beta": ["capital_jpy", "max_order_jpy", "capital_jpy_hard_max", "require_simulate_check"],
     "schedule": ["daily_run", "open_run_delay_min", "open_run_max_late_min", "weekly_screen_day", "weekly_screen_time",
                  "retry_count", "retry_min", "tick_sec", "notify"],
-    "backtest": ["start", "end", "out_of_sample_years", "stress_periods", "entry_gap_compare", "market_cap_proxy",
-                 "report_dir"],
+    "backtest": ["start", "end", "out_of_sample_years", "stress_periods", "entry_gap_compare", "variants",
+                 "market_cap_proxy", "report_dir"],
 }
 
 

@@ -64,11 +64,44 @@ def run_suite(cfg, ind, earnings, shares) -> dict:
     return runs
 
 
+INDICATOR_KEYS = {"breakout_days", "trail_sma", "atr_days"}     # 変えると指標の計算し直しが要る
+
+
+def run_variants(cfg, ind, earnings, shares) -> dict:
+    """改善案ごとに 検証期間 / 検証外期間 を回す (指数フィルターあり)。"""
+    import copy
+
+    from .indicators import compute_all
+    dates = ind["close"].index
+    start = pd.Timestamp(cfg.backtest["start"])
+    end = pd.Timestamp(cfg.backtest["end"]) if cfg.backtest["end"] else dates[-1]
+    oos = end - pd.DateOffset(years=cfg.backtest["out_of_sample_years"])
+    out = {}
+    for n, v in enumerate(cfg.backtest["variants"] or []):
+        c = copy.deepcopy(cfg)
+        for sec in ("strategy", "risk"):
+            for k, val in (v.get(sec) or {}).items():
+                if k not in c[sec]:
+                    raise ValueError(f"改善案「{v['name']}」の {sec}.{k} は config にありません")
+                c[sec][k] = val
+        need = INDICATOR_KEYS & set((v.get("strategy") or {}))
+        ind_v = compute_all({k: ind[k] for k in ("open", "high", "low", "close", "volume", "bench_close", "mom_pct") if k in ind}, c) \
+            if need else ind
+        log.info("改善案 %d: %s", n, v["name"])
+        res = {}
+        for key, s, e in (("is", start, oos - pd.Timedelta(days=1)), ("oos", oos, end)):
+            r = backtest.run(c, ind_v, earnings, shares, start=str(s.date()), end=str(e.date()), index_filter=True,
+                             label=v["name"], record_decisions=False)
+            res[key] = {"stats": backtest.stats(r), "diag": backtest.diagnose(r, c.fees["slippage_pct"], c.strategy["initial_stop_atr"])}
+        out[f"v{n}"] = {"name": v["name"], "why": v.get("why", ""), "strategy": v.get("strategy") or {}, "risk": v.get("risk") or {}, **res}
+    return out
+
+
 def gap_key(g) -> str:
     return "gap_market" if g is None else "gap_" + f"{g:g}".replace(".", "_")
 
 
-def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path:
+def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict, variants: dict | None = None) -> Path:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -133,7 +166,7 @@ def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path
     payload = {"created": datetime.now().isoformat(timespec="seconds"), "data": data_info, "notes": notes,
                "fx": fx, "labels": {k: r.label for k, r in runs.items()}, "stats": st,
                "gap_compare": {k: {"label": r.label, "current": k == cur, "stats": gst[k]} for k, r in gap_runs.items()},
-               "diagnose": diag}
+               "diagnose": diag, "variants": variants or {}}
     (out / "stats.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
     # ---- Markdown
@@ -168,6 +201,18 @@ def write(cfg, runs: dict, ind: dict, notes: list[str], data_info: dict) -> Path
     for y in sorted(set(yr_on) | set(yr_off)):
         L.append(f"| {y} | {_fmt(yr_on.get(y, 0) * fx, 0)} | {_fmt(yr_off.get(y, 0) * fx, 0)} |")
     L.append("")
+    if variants:
+        L.append("## 改善案の比較（指数フィルターあり）\n")
+        L.append("検証期間で選び、検証外期間（直近）でも勝てているかを見る。検証外だけ良い案は偶然の可能性が高い。\n")
+        L.append("| 案 | 検証: 年率 (%) | 検証: 最大DD (%) | 検証: 平均R | 検証外: 年率 (%) | 検証外: 最大DD (%) | 検証外: 平均R | 取引 (検証/外) |")
+        L.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+        for v in variants.values():
+            a, b = v["is"]["stats"], v["oos"]["stats"]
+            da, db = v["is"]["diag"], v["oos"]["diag"]
+            L.append(f"| {v['name']} | {_fmt(a.get('年率リターン_pct'))} | {_fmt(a.get('最大ドローダウン_pct'))} | "
+                     f"{_fmt(da.get('平均R'), 2)} | {_fmt(b.get('年率リターン_pct'))} | {_fmt(b.get('最大ドローダウン_pct'))} | "
+                     f"{_fmt(db.get('平均R'), 2)} | {a.get('取引回数', 0)}/{b.get('取引回数', 0)} |")
+        L.append("")
     if diag:
         L.append("## どこで負けているか（全期間・指数フィルターあり）\n")
         L.append(f"- 損益合計 {_fmt(diag['損益合計_usd'] * fx, 0)} 円 = コスト前 {_fmt(diag['コスト前の損益_usd'] * fx, 0)} 円 "

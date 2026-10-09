@@ -100,6 +100,29 @@ backtest:
     "2022年": ["2022-01-01", "2022-12-31"]
   # 寄り付きの買い方の比較 (上の entry_limit_gap_pct を変えたときの成績)。null = 成行
   entry_gap_compare: [null, 1.0, 2.0, 3.0]
+  # 改善案の比較 (「改善案も比べる」で実行)。理由のある案だけを先に決めておき、パラメータの探し回りはしない。
+  # 検証期間で良かった案が、検証外期間 (直近) でも勝てているかで判断する
+  variants:
+    - name: 今のルール
+    - name: トレーリングを緩く (50日線・ATR×3)
+      why: 20日線の追従は近すぎて、伸びる前に振り落とされやすい
+      strategy: {trail_sma: 50, trail_atr: 3.0}
+    - name: 時間切れの手仕舞いなし
+      why: 動き出すまで時間がかかる銘柄を早く手放さない
+      strategy: {time_exit_days: 100000}
+    - name: 55日高値ブレイク (タートル)
+      why: 20日より長い高値の方が、だましのブレイクが少ない
+      strategy: {breakout_days: 55}
+    - name: 損切りを広く (ATR×3)
+      why: 買った直後のノイズで損切りされにくくする (株数は自動で減る)
+      strategy: {initial_stop_atr: 3.0, trail_trigger_atr: 3.0}
+    - name: 銘柄を 2 つに絞る
+      why: 1 回の金額を大きくして、手数料・スリッページの割合を下げる
+      strategy: {max_positions: 2}
+      risk: {max_position_pct: 50.0}
+    - name: 緩いトレーリング + 時間切れなし
+      why: 上の 2 つの組み合わせ (トレンドフォローの「利を伸ばす」を強める)
+      strategy: {trail_sma: 50, trail_atr: 3.0, time_exit_days: 100000}
   market_cap_proxy: current_shares   # 過去の時価総額 = 現在の発行済株数 × その日の株価 (近似) / none = フィルター無効
   report_dir: ~/moomoo-swing/reports
 

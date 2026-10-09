@@ -328,6 +328,7 @@ img.chart { width: 100%; border-radius: 12px; border: 1px solid var(--line); bac
           <div style="flex:2;min-width:220px"><b>過去の成績の確認</b><div class="muted small">先に「データ」で過去データを取得（初回だけ・数十分）→ ここで実行（数分）。</div></div>
           <button id="btnBacktestSyn" class="btn" style="flex:0 0 auto">擬似データで動作確認</button>
           <button id="btnBacktest" class="btn primary" style="flex:0 0 auto">バックテスト実行</button>
+          <button id="btnBacktestVar" class="btn primary" style="flex:0 0 auto">改善案も比べる（時間がかかります）</button>
         </div>
       </div>
       <div id="btResult"></div>
@@ -603,6 +604,10 @@ $("btnBacktest").onclick = () => {
   job("backtest");
 };
 $("btnBacktestSyn").onclick = () => job("backtest_synthetic");
+$("btnBacktestVar").onclick = () => {
+  if (last && last.data && !last.data.universe) { toast("過去データがまだありません。先に「データ」で取得してください。", "err"); go("data"); return; }
+  job("backtest_variants");
+};
 const SETTINGS = ["capital_jpy", "fx_rate_jpy_per_usd", "capital_source", "entry_limit_gap_pct", "screener_source", "host", "port", "account_env"];
 async function saveSettings() {
   const s = {}; for (const k of SETTINGS) s[k] = $(k).value;
@@ -668,7 +673,7 @@ function renderReal(r) {
 }
 
 /* ---------- 描画 ---------- */
-const BUSY = ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn", "btnAccount", "btnPwVerify", "btnTradeCheck", "btnTradeClose", "btnTradeOpen", "btnTradeReset"];
+const BUSY = ["btnCheck", "btnScreen", "btnFetch", "btnBacktest", "btnBacktestSyn", "btnBacktestVar", "btnAccount", "btnPwVerify", "btnTradeCheck", "btnTradeClose", "btnTradeOpen", "btnTradeReset"];
 function renderJob(j) {
   const busy = j && j.state === "running";
   for (const id of BUSY) $(id).disabled = busy;
@@ -894,6 +899,18 @@ function renderReport(rep) {
   h += `<div class="tbl"><table><tr><th>指標</th>${keys.map((k) => `<th>${esc(L[k] || k)}</th>`).join("")}</tr>`;
   for (const [name, fn] of rows) h += `<tr><td>${name}</td>${keys.map((k) => `<td>${S[k] ? fn(S[k]) : "—"}</td>`).join("")}</tr>`;
   h += `</table></div></div>`;
+  const V = rep.variants || {};
+  if (Object.keys(V).length) {
+    const vs = Object.values(V);
+    const bestIs = Math.max(...vs.map((v) => v.is.stats["年率リターン_pct"] ?? -999));
+    const cell = (s, d) => `<td class="${cls(s["年率リターン_pct"])}"><b>${pct(s["年率リターン_pct"], 1)}</b><br><span class="muted small">DD ${fmt(s["最大ドローダウン_pct"], 1)}%・${fmt(s["取引回数"], 0)}回・${d && d["平均R"] != null ? (d["平均R"] > 0 ? "+" : "") + fmt(d["平均R"], 2) + "R" : "—"}</span></td>`;
+    h += `<div class="card"><h2>改善案の比較<span class="act muted small">指数フィルターあり</span></h2>
+      <div class="muted small" style="margin-bottom:10px"><b>選び方</b>: 「検証期間」で良い案を選び、「検証外（直近）」でもプラスなら本物の可能性が高い。検証外だけ良い案は偶然かもしれません。</div>
+      <div class="tbl"><table><tr><th>案</th><th>検証期間</th><th>検証外（直近）</th></tr>` +
+      vs.map((v) => { const ok = (v.is.stats["年率リターン_pct"] || 0) > 0 && (v.oos.stats["年率リターン_pct"] || 0) > 0;
+        return `<tr><td style="white-space:normal;min-width:220px"><b>${esc(v.name)}</b>${v.is.stats["年率リターン_pct"] === bestIs ? ' <span class="tag acc">検証期間で1位</span>' : ""}${ok ? ' <span class="tag up">両方プラス</span>' : ""}<br><span class="muted small">${esc(v.why || "")}</span></td>
+          ${cell(v.is.stats, v.is.diag)}${cell(v.oos.stats, v.oos.diag)}</tr>`; }).join("") + `</table></div></div>`;
+  }
   const D = rep.diagnose;
   if (D && D["損益合計_usd"] !== undefined) {
     const R = (v) => v == null ? "—" : (v > 0 ? "+" : "") + fmt(v, 2) + "R";

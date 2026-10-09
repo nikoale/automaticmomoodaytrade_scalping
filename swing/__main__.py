@@ -81,7 +81,7 @@ def cmd_fetch(cfg, what: str, limit: int | None) -> None:
             data.update_earnings(cfg, cand)
 
 
-def cmd_backtest(cfg, synthetic: bool) -> None:
+def cmd_backtest(cfg, synthetic: bool, variants: bool = False) -> None:
     from . import data, report
     from .indicators import compute_all
     log = logging.getLogger("swing")
@@ -117,7 +117,8 @@ def cmd_backtest(cfg, synthetic: bool) -> None:
         ]
     ind = compute_all(panel, cfg)
     runs = report.run_suite(cfg, ind, earnings, shares)
-    out = report.write(cfg, runs, ind, notes, info)
+    var = report.run_variants(cfg, ind, earnings, shares) if variants else None
+    out = report.write(cfg, runs, ind, notes, info, var)
     log.info("完了: %s", out / "report.md")
     return out
 
@@ -185,6 +186,7 @@ def main(argv=None) -> None:
     g.add_argument("--no-browser", action="store_true")
     b = sub.add_parser("backtest")
     b.add_argument("--synthetic", action="store_true")
+    b.add_argument("--variants", action="store_true", help="改善案 (config の backtest.variants) も比べる")
     sub.add_parser("run", help="フェーズ 4: 常駐して自動実行")
     t = sub.add_parser("trade", help="フェーズ 3: 発注 (既定は模擬口座)")
     t.add_argument("what", choices=["close", "open", "status", "resume", "check", "reset"])
@@ -205,7 +207,7 @@ def main(argv=None) -> None:
             used, remain = m.quota()
         print(f"過去 K 線の取得枠: 使用済み {used} / 残り {remain}")
     elif a.cmd == "backtest":
-        print(cmd_backtest(cfg, a.synthetic) / "report.md")
+        print(cmd_backtest(cfg, a.synthetic, a.variants) / "report.md")
     elif a.cmd == "run":
         from .runner import run_forever
         run_forever(lambda: config_mod.load(a.config), confirm=confirm_real)

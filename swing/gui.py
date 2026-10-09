@@ -203,6 +203,7 @@ class App:
         jobs = {"check": self._job_check, "screen": self._job_screen, "fetch": self._job_fetch,
                 "account": self._job_account, "verify_password": self._job_verify_password,
                 "backtest": lambda: self._job_backtest(False), "backtest_synthetic": lambda: self._job_backtest(True),
+                "backtest_variants": lambda: self._job_backtest(False, True),
                 "trade_close": lambda: self._job_trade("close"), "trade_open": lambda: self._job_trade("open"),
                 "trade_check": lambda: self._job_trade("check"), "trade_reset": lambda: self._job_trade("reset")}
         if name not in jobs:
@@ -303,9 +304,9 @@ class App:
         cmd_fetch(self.cfg(), "all", None)
         return self.data_status()
 
-    def _job_backtest(self, synthetic: bool) -> dict:
+    def _job_backtest(self, synthetic: bool, variants: bool = False) -> dict:
         from .__main__ import cmd_backtest
-        out = cmd_backtest(self.cfg(), synthetic)
+        out = cmd_backtest(self.cfg(), synthetic, variants)
         return {"dir": out.name}
 
     # ---------------------------------------------------------------- 本番口座 (ベータ)
@@ -514,6 +515,7 @@ class App:
 
 JOB_LABELS = {"check": "OpenD 接続チェック", "account": "口座の読み込み", "verify_password": "取引パスワードの確認", "screen": "今週の監視リスト作成", "fetch": "過去データの取得",
               "backtest": "バックテスト", "backtest_synthetic": "バックテスト (擬似データ)",
+              "backtest_variants": "バックテスト (改善案も比べる)",
               "trade_close": "引け後の処理 (模擬口座)", "trade_open": "寄り付き後の処理 (模擬口座)",
               "trade_check": "発注機能の確認 (模擬口座)", "trade_reset": "模擬口座の記録をリセット"}
 
